@@ -17,37 +17,59 @@ genres = genres = ['classical', 'country', 'disco', 'hiphop', 'jazz', 'metal', '
 genre_dict = {g: i for i, g in enumerate(genres)}
 
 class SpecDataset(Dataset):
-  def __init__(self, paths,  mean=0, std=1, time_dim_size=None):
-    self.paths = paths
-    self.mean = mean
-    self.std = std
-    self.time_dim_size = time_dim_size
+    def __init__(self, paths,  mean=0, std=1, time_dim_size=None):
+        self.paths = paths
+        self.mean = mean
+        self.std = std
+        self.time_dim_size = time_dim_size
 
-  def __getitem__(self, i):
-    # Get i-th path.
-    path = self.paths[i]
-    # Get i-th spectrogram path.
-    path = 'gtzan/spec/' + path.replace('.wav', '.npy')
+    def __getitem__(self, i):
+        # Get i-th path.
+        path = self.paths[i]
+        # Get i-th spectrogram path.
+        path = 'gtzan/spec/' + path.replace('.wav', '.npy')
 
-    # Extract the genre from its path.
-    genre = path.split('/')[-2]
-    # Trun the genre into index number.
-    label = genre_dict[genre]
+        # Extract the genre from its path.
+        genre = path.split('/')[-2]
+        # Trun the genre into index number.
+        label = genre_dict[genre]
 
-    # Load the mel-spectrogram.
-    spec = np.load(path)
-    if self.time_dim_size is not None:
-      # Slice the temporal dimension with a fixed length so that they have
-      # the same temporal dimensionality in mini-batches.
-      spec = spec[:, :self.time_dim_size]
-    # Perform standard normalization using pre-computed mean and std.
-    spec = (spec - self.mean) / self.std
+        # Load the mel-spectrogram.
+        spec = np.load(path)
+        if self.time_dim_size is not None:
+            # Slice the temporal dimension with a fixed length so that they have
+            # the same temporal dimensionality in mini-batches.
+            spec = spec[:, :self.time_dim_size]
+        # Perform standard normalization using pre-computed mean and std.
+        spec = (spec - self.mean) / self.std
 
-    return spec, label
-  
-  def __len__(self):
-    return len(self.paths)
+        return spec, label
+    
+    def __len__(self):
+        return len(self.paths)
 
+class EmbedDataset(Dataset):
+    def __init__(self, paths):
+        self.paths = paths
+
+    def __getitem__(self, i):
+        # Get i-th path.
+        path = self.paths[i]
+        # Get i-th embeddding path.
+        path = 'gtzan/msd_embed/' + path.replace('.wav', '.npy')
+
+        # Extract the genre from its path.
+        genre = path.split('/')[-2]
+        # Trun the genre into index number.
+        label = genre_dict[genre]
+
+        # Load the mel-spectrogram.
+        embed = np.load(path)
+
+        return embed, label
+    
+    def __len__(self):
+        return len(self.paths)
 
 def load_split(path):
     with open(path) as f:
@@ -79,3 +101,4 @@ def extract_melspec(train_path, test_path):
 
         # Save the spectrogram.
         np.save(path_out, melspec)
+
