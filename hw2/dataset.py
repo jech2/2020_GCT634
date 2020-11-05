@@ -173,4 +173,15 @@ def segmentation(train_path, val_path, test_path):
             current_seg += segment_size
 
 def augmemtation(train_path, val_path, test_path):
-    print('hello world')
+    for genre in genres:
+        os.makedirs('gtzan/augwav/' + genre, exist_ok=True)
+
+    # white noise
+    wn = np.random.randn(len(y))
+    y_wn = y + 0.0025*wn
+
+    # time shift
+    y_roll = np.roll(y, 5000)
+
+    # time stretch
+    y_stretch = librosa.effects.time_stretch(y, 0.6)
