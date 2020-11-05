@@ -3,7 +3,6 @@ import os
 import torch
 import torch.nn as nn
 
-# TODO: Question 1
 ## (L_in + 2p - (k - 1) - 1)/s + 1 = L_out
 class Q1(nn.Module):
   def __init__(self, num_mels, genres):

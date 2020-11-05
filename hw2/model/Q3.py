@@ -2,42 +2,27 @@ import numpy as np
 import os
 import torch
 import torch.nn as nn
+from model.Q1 import Q1
+from model.Q2 import Q2
 
-class Baseline(nn.Module):
+class SpecAndEmbed(nn.Module):
   def __init__(self, num_mels, genres):
-    super(Baseline, self).__init__()
+    super(SpecAndEmbed, self).__init__()
 
-    self.conv0 = nn.Sequential(
-      nn.Conv1d(num_mels, out_channels=32, kernel_size=7, stride=1, padding=3),
-      nn.BatchNorm1d(32),
-      nn.ReLU(),
-      nn.MaxPool1d(kernel_size=7, stride=7)
-    )
+    self.spec_conv = Q1(num_mels=num_mels, genres=genres)
+    self.embed_mlp = Q2(genres=genres)
+    self.BatchNorm = nn.BatchNorm1d(len(genres))
+    self.ReLU = nn.ReLU()
 
-    self.conv1 = nn.Sequential(
-      nn.Conv1d(32, out_channels=32, kernel_size=7, stride=1, padding=3),
-      nn.BatchNorm1d(32),
-      nn.ReLU(),
-      nn.MaxPool1d(kernel_size=7, stride=7)
-    )
+    self.linear = nn.Linear(16, len(genres))
 
-    self.conv2 = nn.Sequential(
-      nn.Conv1d(32, out_channels=32, kernel_size=7, stride=1, padding=3),
-      nn.BatchNorm1d(32),
-      nn.ReLU(),
-      nn.MaxPool1d(kernel_size=7, stride=7)
-    )
-
-    # Aggregate features over temporal dimension.
-    self.final_pool = nn.AdaptiveAvgPool1d(1)
-
-    # Predict genres using the aggregated features.
-    self.linear = nn.Linear(32, len(genres))
-
-  def forward(self, x):
-    x = self.conv0(x)
-    x = self.conv1(x)
-    x = self.conv2(x)
-    x = self.final_pool(x)
-    x = self.linear(x.squeeze(-1))
-    return x
+  def forward(self, spec, embed):
+    spec = self.spec_conv(spec)
+    #spec = self.BatchNorm(spec)
+    spec = self.ReLU(spec)
+    embed = self.embed_mlp(embed)
+    #embed = self.BatchNorm(embed)
+    embed = self.ReLU(embed)
+    out = torch.cat([spec, embed], dim=1)
+    out = self.linear(out)
+    return out

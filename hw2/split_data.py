@@ -5,12 +5,12 @@ from dataset import load_split
 # Stratified ShuffleSplit cross-validator 
 # provides train/test indices to split data in train/test sets.
 from sklearn.model_selection import StratifiedShuffleSplit
-
+from tqdm import tqdm
 
 genres = genres = ['classical', 'country', 'disco', 'hiphop', 'jazz', 'metal', 'pop', 'reggae']
 genre_dict = {g: i for i, g in enumerate(genres)}
 
-if __name__ == '__main__':
+def split_val():
     train_list = load_split('gtzan/split/train.txt')
     #print(train_list)
     n_songs_for_val = 5 # use 5 songs for each class as validation
@@ -46,3 +46,34 @@ if __name__ == '__main__':
         X_val = X_val.tolist()
         for item in X_val:
             f.write("%s\n" % item)
+
+def make_segmented_list():
+    train_list = load_split('gtzan/split/splited_train.txt')
+    val_list = load_split('gtzan/split/splited_val.txt')
+    test_list = load_split('gtzan/split/test.txt')
+    
+    new_train_path = 'gtzan/split/splited_segmented_train.txt'
+    new_val_path = 'gtzan/split/splited_segmented_val.txt'
+    new_test_path = 'gtzan/split/segmented_test.txt'
+
+    with open(new_train_path, 'w') as f:
+        for path in tqdm(train_list):
+            for idx in range(7):
+                segmented_path = path.replace('.wav', f'_{idx}.wav')
+                f.write("%s\n" % segmented_path)
+
+    with open(new_val_path, 'w') as f:
+        for path in tqdm(val_list):
+            for idx in range(7):
+                segmented_path = path.replace('.wav', f'_{idx}.wav')
+                f.write("%s\n" % segmented_path)
+
+    with open(new_test_path, 'w') as f:
+        for path in tqdm(test_list):
+            for idx in range(7):
+                segmented_path = path.replace('.wav', f'_{idx}.wav')
+                f.write("%s\n" % segmented_path)
+
+if __name__ == '__main__':
+    #split_val()
+    make_segmented_list()

@@ -2,7 +2,7 @@ import functools
 import os, shutil
 
 import numpy as np
-
+import random
 import torch
 
 
@@ -38,3 +38,12 @@ def create_exp_dir(dir_path, scripts_to_save=None, debug=False):
 def save_checkpoint(model, optimizer, path, epoch):
     torch.save(model, os.path.join(path, 'model_{}.pt'.format(epoch)))
     torch.save(optimizer.state_dict(), os.path.join(path, 'optimizer_{}.pt'.format(epoch)))
+
+def set_seed(manualSeed):
+    np.random.seed(manualSeed)
+    random.seed(manualSeed)
+    torch.manual_seed(manualSeed)
+    torch.cuda.manual_seed(manualSeed)
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
