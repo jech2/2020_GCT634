@@ -10,7 +10,7 @@ from tqdm import tqdm
 from glob import glob
 from torch.utils.data import Dataset, DataLoader
 from exp_utils import create_exp_dir, set_seed
-from dataset import SpecDataset, EmbedDataset, SpecEmbedDataset, load_split, extract_melspec, segmentation
+from dataset import SpecDataset, EmbedDataset, SpecEmbedDataset, load_split, extract_melspec, save_augmentation
 from model.Baseline import Baseline, SegmentedBaseline
 from model.Q1 import Q1
 from model.Q2 import Q2
@@ -24,7 +24,7 @@ FFT_SIZE = 1024
 NUM_MELS = 96
 
 # Data processing setup.
-BATCH_SIZE = 64
+BATCH_SIZE = 16
 TEST_BATCH_SIZE = 7
 
 genres = genres = ['classical', 'country', 'disco', 'hiphop', 'jazz', 'metal', 'pop', 'reggae']
@@ -35,16 +35,28 @@ class Trainer(object):
         self.best_val_loss = 987654321.0;
 
         # Load train and test data
-        # self.train_path = load_split('gtzan/split/splited_train.txt')
-        # self.val_path = load_split('gtzan/split/splited_val.txt')
-        # self.test_path = load_split('gtzan/split/test.txt')
-
-        self.train_path = load_split('gtzan/split/splited_segmented_train.txt')
-        self.val_path = load_split('gtzan/split/splited_segmented_val.txt')
-        self.test_path = load_split('gtzan/split/segmented_test.txt')
+        if args.use_segment:
+            # self.train_path = load_split('gtzan/split/splited_segmented_train.txt')
+            # self.val_path = load_split('gtzan/split/splited_segmented_val.txt')
+            # self.test_path = load_split('gtzan/split/segmented_test.txt')
+            self.train_path = glob('gtzan/seg_spec/train/*.npy')
+            self.val_path = glob('gtzan/seg_spec/val/*.npy')
+            self.test_path = sorted(glob('gtzan/seg_spec/test/*.npy'))
+        else:
+            self.train_path = load_split('gtzan/split/splited_train.txt')
+            self.val_path = load_split('gtzan/split/splited_val.txt')
+            self.test_path = load_split('gtzan/split/test.txt')
+            #self.train_path = glob('gtzan/split/train/*.wav')
+            # self.val_path = glob('gtzan/split/val/*.wav')
+            # self.test_path = sorted(glob('gtzan/split/test/*.wav'))
+            # self.train_path = glob('gtzan/ori_spec/train/*.npy')
+            # self.val_path = glob('gtzan/ori_spec/val/*.npy')
+            # self.test_path = sorted(glob('gtzan/ori_spec/test/*.npy'))
 
         # Each entry of the lists look like this:
         print('train set :', len(self.train_path), '| val set :', len(self.val_path), '| test set :', len(self.test_path))
+        #save_augmentation('gtzan/split/')
+        #extract_melspec('gtzan/aug_wav/', doSeg=self.args.use_segment)
         #segmentation(self.train_path, self.val_path, self.test_path)       
 
         if args.model == 'Q2':
@@ -53,7 +65,7 @@ class Trainer(object):
             self.dataset_test = EmbedDataset(self.test_path)
         elif args.model == 'SpecAndEmbed':
             # Make directories to save mel-spectrograms.
-            extract_melspec(self.train_path, self.val_path, self.test_path)
+            #extract_melspec(self.train_path, self.val_path, self.test_path)
             # Load all spectrograms.
             dataset_train = SpecEmbedDataset(self.train_path)
             specs = [s[0] for s, _ in dataset_train]
@@ -76,7 +88,7 @@ class Trainer(object):
         else:
             # Make directories to save mel-spectrograms.
             #extract_melspec(self.train_path, self.val_path, self.test_path)
-
+            #extract_melspec('gtzan/split/', doSeg=self.args.use_segment)
             # Load all spectrograms.
             dataset_train = SpecDataset(self.train_path)
             specs = [s for s, _ in dataset_train]
@@ -322,6 +334,8 @@ class Trainer(object):
 
 def main():
     parser = argparse.ArgumentParser(description="HW2 Training")
+    parser.add_argument('--debug', action='store_true',
+                    help='Debug mode')
     parser.add_argument('--model', type=str, default='Baseline',
                         choices=['Baseline', 'Q1', 'Q2', 'SpecAndEmbed', 'SegmentedBaseline'],
                         help='backbone model (default is Baseline)')
@@ -329,7 +343,7 @@ def main():
                     help='experiment directory.')
     parser.add_argument('--n_test', type=int, default=1,
                     help='number of tests with different seeds')
-    parser.add_argument('--n_epochs', type=int, default=100,
+    parser.add_argument('--n_epochs', type=int, default=30,
                     help='number of epochs')
     parser.add_argument('--use_segment', action='store_true',
                     help='Use segmented data')
@@ -343,7 +357,7 @@ def main():
     
     args.work_dir = '{}-{}'.format(args.work_dir, args.model)
     args.work_dir = os.path.join(args.work_dir, time.strftime('%Y%m%d-%H%M%S'))
-    args.logging = create_exp_dir(args.work_dir)
+    args.logging = create_exp_dir(args.work_dir, debug=args.debug)
 
     # args information logging!
     args.logging('=' * 100)
@@ -352,6 +366,7 @@ def main():
     args.logging('=' * 100)
 
     test_accs = np.zeros(args.n_test)
+    test_acc_log = "test accs : "
     for i in range(args.n_test):
         manualSeed = random.randint(1, 10000) # use if you want new results
         print("Seed: ", manualSeed)
@@ -361,9 +376,11 @@ def main():
         trainer = Trainer(args)
         trainer.train()
         test_accs[i] = trainer.test()
-    test_avg_acc = np.mean(test_accs)
-    test_acc_log = f'avg test accs for {args.n_test} trials is {test_avg_acc:5.2f}'
+        test_acc_log += (f'{test_accs[i]:5.2f},')
     args.logging(test_acc_log)
+    test_avg_acc = np.mean(test_accs)
+    test_avg_log = f'avg test accs for {args.n_test} trials is {test_avg_acc:5.2f}'
+    args.logging(test_avg_log)
 
 if __name__ == '__main__':
     main()

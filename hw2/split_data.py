@@ -1,11 +1,14 @@
 # randomly select 5 songs for each class from train dataset and split them as validation set (40 / 580) 
 import pandas as pd
 import numpy as np
+import os
+import shutil
 from dataset import load_split
 # Stratified ShuffleSplit cross-validator 
 # provides train/test indices to split data in train/test sets.
 from sklearn.model_selection import StratifiedShuffleSplit
 from tqdm import tqdm
+
 
 genres = genres = ['classical', 'country', 'disco', 'hiphop', 'jazz', 'metal', 'pop', 'reggae']
 genre_dict = {g: i for i, g in enumerate(genres)}
@@ -74,6 +77,29 @@ def make_segmented_list():
                 segmented_path = path.replace('.wav', f'_{idx}.wav')
                 f.write("%s\n" % segmented_path)
 
+def split_wavs():
+    train_list = load_split('gtzan/split/splited_train.txt')
+    val_list = load_split('gtzan/split/splited_val.txt')
+    test_list = load_split('gtzan/split/test.txt')
+
+    train_out_dir = 'gtzan/split/train/'
+    val_out_dir = 'gtzan/split/val/'
+    test_out_dir = 'gtzan/split/test/'
+    os.makedirs(train_out_dir, exist_ok=True)
+    os.makedirs(val_out_dir, exist_ok=True)
+    os.makedirs(test_out_dir, exist_ok=True)
+
+    for path_in in tqdm(train_list):
+        src = f'gtzan/wav/{path_in}'
+        shutil.copy(src, train_out_dir)
+    for path_in in tqdm(val_list):
+        src = f'gtzan/wav/{path_in}'
+        shutil.copy(src, val_out_dir)
+    for path_in in tqdm(test_list):
+        src = f'gtzan/wav/{path_in}'
+        shutil.copy(src, test_out_dir)
+
 if __name__ == '__main__':
     #split_val()
-    make_segmented_list()
+    #make_segmented_list()
+    #split_wavs()
