@@ -25,7 +25,7 @@ FFT_SIZE = 1024
 NUM_MELS = 96
 
 # Data processing setup.
-BATCH_SIZE = 16
+BATCH_SIZE = 32
 TEST_BATCH_SIZE = 7
 
 genres = genres = ['classical', 'country', 'disco', 'hiphop', 'jazz', 'metal', 'pop', 'reggae']
@@ -33,8 +33,8 @@ genres = genres = ['classical', 'country', 'disco', 'hiphop', 'jazz', 'metal', '
 class Trainer(object):
     def __init__(self, args=None):
         self.args = args
-        self.best_val_loss = 987654321.0;
-
+        #self.best_val_loss = 987654321.0;
+        self.best_val_acc = 0.0;
         # Load train and test data
         if args.use_segment:
             # self.train_path = load_split('gtzan/split/splited_segmented_train.txt')
@@ -44,9 +44,12 @@ class Trainer(object):
             self.val_path = glob('gtzan/seg_spec/val/*.npy')
             self.test_path = sorted(glob('gtzan/seg_spec/test/*.npy'))
         else:
-            self.train_path = load_split('gtzan/split/splited_train.txt')
-            self.val_path = load_split('gtzan/split/splited_val.txt')
-            self.test_path = load_split('gtzan/split/test.txt')
+            # self.train_path = load_split('gtzan/split/splited_train.txt')
+            # self.val_path = load_split('gtzan/split/splited_val.txt')
+            # self.test_path = load_split('gtzan/split/test.txt')
+            self.train_path = glob('gtzan/ori_features/train/*.npy')
+            self.val_path = glob('gtzan/ori_features/val/*.npy')
+            self.test_path = sorted(glob('gtzan/ori_features/test/*.npy'))
             #self.train_path = glob('gtzan/split/train/*.wav')
             # self.val_path = glob('gtzan/split/val/*.wav')
             # self.test_path = sorted(glob('gtzan/split/test/*.wav'))
@@ -116,11 +119,6 @@ class Trainer(object):
         self.loader_val = DataLoader(self.dataset_val, batch_size=BATCH_SIZE, shuffle=True, num_workers=num_workers, drop_last=True)
         self.loader_test = DataLoader(self.dataset_test, batch_size=TEST_BATCH_SIZE, shuffle=False, num_workers=num_workers, drop_last=False)
 
-        # Training setup.
-        self.lr = 0.0006  # learning rate
-        self.momentum = 0.9
-        self.weight_decay = 0.0  # L2 regularization weight
-
         if args.model == 'Q1':
             self.model = Q1(num_mels=NUM_MELS, genres=genres)
         elif args.model == 'Q2':
@@ -132,15 +130,36 @@ class Trainer(object):
             self.model = SegmentedBaseline(NUM_MELS, genres)
         elif args.model == 'Base2DCNN':
             self.model = Base2DCNN(genres)
-        elif args.model == 'vgg':
+        elif args.model == 'vgg16':
             self.model = models.vgg16(pretrained=True)
+            fc_in_features = self.model.fc.in_features
+            self.model.fc = nn.Linear(in_features=fc_in_features, out_features=len(genres))
+        elif args.model == 'resnet18':
+            self.model = models.resnet18(pretrained=True)
+            fc_in_features = self.model.fc.in_features
+            self.model.fc = nn.Linear(in_features=fc_in_features, out_features=len(genres))
+        elif args.model == 'resnet34':
+            self.model = models.resnet34(pretrained=True)
+            fc_in_features = self.model.fc.in_features
+            self.model.fc = nn.Linear(in_features=fc_in_features, out_features=len(genres))
+        elif args.model == 'resnet50':
+            self.model = models.resnet50(pretrained=True)
+            fc_in_features = self.model.fc.in_features
+            self.model.fc = nn.Linear(in_features=fc_in_features, out_features=len(genres))
+        elif args.model == 'resnet101':
+            self.model = models.resnet101(pretrained=True)
+            fc_in_features = self.model.fc.in_features
+            self.model.fc = nn.Linear(in_features=fc_in_features, out_features=len(genres))
         else:
             self.model = Baseline(NUM_MELS, genres)
         
         # Define a loss function, which is cross entropy here.
         self.criterion = torch.nn.CrossEntropyLoss()
         # Setup an optimizer. Here, we use Stochastic gradient descent (SGD) with a nesterov mementum.
-        self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.lr, momentum=self.momentum, nesterov=True, weight_decay=self.weight_decay)
+        if args.optimizer == 'Adam':
+            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.weight_decay)
+        elif args.optimizer == 'SGD':
+            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.args.lr, momentum=self.args.momentum, nesterov=True, weight_decay=self.args.weight_decay)
         # Choose a device. We will use GPU if it's available, otherwise CPU.
         device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         # Move variables to the desired device.
@@ -207,14 +226,14 @@ class Trainer(object):
             val_loss = epoch_loss / len(self.dataset_val)
             val_acc = epoch_acc / len(self.dataset_val)
 
-            if (val_loss < self.best_val_loss):
+            if (val_acc > self.best_val_acc):
                 #print('best validation loss!')
-                self.best_val_loss = val_loss
+                self.best_val_acc = val_acc
                 with open(os.path.join(self.args.work_dir, 'model.pt'), 'wb') as f:
                     torch.save(self.model, f)
                 with open(os.path.join(self.args.work_dir, 'optimizer.pt'), 'wb') as f:
                     torch.save(self.optimizer.state_dict(), f)
-            log_str = f'| val_loss {val_loss:5.2f} | val_acc {val_acc:5.2f}'
+            log_str = f'| val_loss {val_loss:5.3f} | val_acc {val_acc:5.3f}'
             return log_str           
 
 
@@ -342,8 +361,11 @@ def main():
     parser.add_argument('--debug', action='store_true',
                     help='Debug mode')
     parser.add_argument('--model', type=str, default='Baseline',
-                        choices=['Baseline', 'Q1', 'Q2', 'SpecAndEmbed', 'SegmentedBaseline','Base2DCNN', 'vgg'],
+                        choices=['Baseline', 'Q1', 'Q2', 'SpecAndEmbed', 'SegmentedBaseline','Base2DCNN', 'vgg16', 'resnet18', 'resnet34', 'resnet50', 'resnet101'],
                         help='backbone model (default is Baseline)')
+    parser.add_argument('--optimizer', type=str, default='Adam',
+                        choices=['SGD', 'Adam'],
+                        help='optimizer')
     parser.add_argument('--work_dir', default='experiment', type=str,
                     help='experiment directory.')
     parser.add_argument('--n_test', type=int, default=1,
@@ -352,6 +374,15 @@ def main():
                     help='number of epochs')
     parser.add_argument('--use_segment', action='store_true',
                     help='Use segmented data')
+    parser.add_argument('--use_augment', action='store_true',
+                    help='Use augmented data')
+    parser.add_argument('--lr', type=float, default=0.0001,
+                    help='learning rate')
+    parser.add_argument('--momentum', type=float, default=0.9,
+                    help='momentum')
+    parser.add_argument('--weight_decay', type=float, default=0.0,
+                    help='weight decay')
+    
     args = parser.parse_args()
     print('using model: ', args.model)
     if not torch.cuda.is_available():

@@ -15,6 +15,7 @@ SR = 16000
 FFT_HOP = 512
 FFT_SIZE = 1024
 NUM_MELS = 96
+MFCC_DIM = 30
 
 genres = genres = ['classical', 'country', 'disco', 'hiphop', 'jazz', 'metal', 'pop', 'reggae']
 splits = ['train', 'val', 'test']
@@ -32,7 +33,7 @@ class SpecDataset(Dataset):
         # Get i-th path.
         path = self.paths[i]
         # Get i-th spectrogram path.
-        #path = 'gtzan/seg_spec/' + path.replace('.wav', '.npy')
+        #path = 'gtzan/spec/' + path.replace('.wav', '.npy')
 
         # Extract the genre from its path.
         #genre = path.split('/')[-2]
@@ -50,9 +51,10 @@ class SpecDataset(Dataset):
 
         if self.model == 'Base2DCNN':     
             spec = np.expand_dims(spec, axis=0)
-        elif self.model == 'vgg':
+        elif (self.model == 'vgg16' or 'resnet18' or 'resnet34' or 'resnet50' or 'resnet101') and self.time_dim_size is not None:
             spec = np.expand_dims(spec, axis=0)
-            spec = np.repeat(spec,3,axis=0)
+            spec = np.repeat(spec, 3, axis=0)
+        spec = spec.astype('float32')
         return spec, label
     
     def __len__(self):
@@ -216,3 +218,65 @@ def augmentation(y):
     y = y.astype('float32')
     
     return y
+
+def extract_features(path, doSeg):
+    print('extracting features...')
+
+    segment_size = 4 * SR // FFT_HOP # we will make each song into segments
+    print(segment_size)
+    if doSeg:
+        out_base = 'gtzan/seg_features/'
+    else:
+        out_base = 'gtzan/ori_features/'
+    # Make directories to save mel-spectrograms.
+    for split in splits:
+        out_dir = out_base + split
+        os.makedirs(out_dir, exist_ok=True)
+    
+        for path_in in tqdm(glob(os.path.join(path,split,'*.wav'))):
+            # The spectrograms will be saved under `gtzan/spec/` with an file extension of `.npy`
+            filename = path_in.split('/')[-1]
+            path_out = os.path.join(out_dir, filename)
+            
+            # Skip if the spectrogram already exists
+            if os.path.isfile(path_out):
+                continue
+            
+            # Load the audio signal with the desired sampling rate (SR).
+            y, _ = librosa.load(path_in, sr=SR, res_type='kaiser_fast')
+            # STFT
+            D = np.abs(librosa.core.stft(y, hop_length=FFT_HOP, n_fft=FFT_SIZE, win_length=FFT_SIZE))
+            # # Compute power mel-spectrogram.
+            # melspec = librosa.feature.melspectrogram(sig, sr=SR, n_fft=FFT_SIZE, hop_length=FFT_HOP, n_mels=NUM_MELS)
+            # # Transform the power mel-spectrogram into the log compressed mel-spectrogram.
+            # melspec = librosa.power_to_db(melspec)
+            # # "float64" uses too much memory! "float32" has enough precision for spectrograms.
+            # melspec = melspec.astype('float32')
+
+            # mfcc
+            mfcc = librosa.feature.mfcc(y=y, sr=SR, n_mfcc=MFCC_DIM)
+            # delta mfcc and double delta
+            delta_mfcc = librosa.feature.delta(mfcc)
+            ddelta_mfcc = librosa.feature.delta(mfcc, order=2)
+            
+            # spectral centroid
+            spec_centroid = librosa.feature.spectral_centroid(S=D)
+            
+            # concatenate all features
+            features = np.concatenate([mfcc, delta_mfcc, ddelta_mfcc, spec_centroid], axis=0)
+            #features = np.concatenate([tempogram, onset_env, mel_S, mfcc, delta_mfcc, ddelta_mfcc,spec_centroid], axis=0)
+
+            if doSeg:
+                current_seg = 0
+                while current_seg + segment_size <= features.shape[1]:
+                    idx = current_seg // segment_size
+                    path_out_seg = path_out.replace('.wav', f'_{idx}.npy')
+                    # Save the spectrogram.
+                    np.save(path_out_seg, features[:,current_seg:current_seg + segment_size])
+                    current_seg += segment_size
+            else:
+                # Save the spectrogram.
+                np.save(path_out, features)
+
+if __name__ == "__main__":
+    extract_features('gtzan/split/', doSeg=False)
