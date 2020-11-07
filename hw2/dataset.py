@@ -21,21 +21,22 @@ splits = ['train', 'val', 'test']
 genre_dict = {g: i for i, g in enumerate(genres)}
 
 class SpecDataset(Dataset):
-    def __init__(self, paths, mean=0, std=1, time_dim_size=None):
+    def __init__(self, paths, mean=0, std=1, time_dim_size=None, model=None):
         self.paths = paths
         self.mean = mean
         self.std = std
         self.time_dim_size = time_dim_size
+        self.model = model
 
     def __getitem__(self, i):
         # Get i-th path.
         path = self.paths[i]
         # Get i-th spectrogram path.
-        path = 'gtzan/spec/' + path.replace('.wav', '.npy')
+        #path = 'gtzan/seg_spec/' + path.replace('.wav', '.npy')
 
         # Extract the genre from its path.
-        genre = path.split('/')[-2]
-        #genre = (path.split('/')[-1]).split('.')[0]
+        #genre = path.split('/')[-2]
+        genre = (path.split('/')[-1]).split('.')[0]
         # Trun the genre into index number.
         label = genre_dict[genre]
         # Load the mel-spectrogram.
@@ -47,6 +48,11 @@ class SpecDataset(Dataset):
         # Perform standard normalization using pre-computed mean and std.
         spec = (spec - self.mean) / self.std
 
+        if self.model == 'Base2DCNN':     
+            spec = np.expand_dims(spec, axis=0)
+        elif self.model == 'vgg':
+            spec = np.expand_dims(spec, axis=0)
+            spec = np.repeat(spec,3,axis=0)
         return spec, label
     
     def __len__(self):

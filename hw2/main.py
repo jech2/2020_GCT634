@@ -14,7 +14,8 @@ from dataset import SpecDataset, EmbedDataset, SpecEmbedDataset, load_split, ext
 from model.Baseline import Baseline, SegmentedBaseline
 from model.Q1 import Q1
 from model.Q2 import Q2
-from model.Q3 import SpecAndEmbed
+from model.Q3 import SpecAndEmbed, Base2DCNN
+import torchvision.models as models
 from sklearn.metrics import confusion_matrix
 
 # Mel-spectrogram setup.
@@ -105,9 +106,9 @@ class Trainer(object):
             print('min_time_dim_size :', min_time_dim_size, '| mean :', mean, '| std :', std)
 
             # based on that, make spec dataset
-            self.dataset_train = SpecDataset(self.train_path, mean, std, min_time_dim_size)
-            self.dataset_val = SpecDataset(self.val_path, mean, std, min_time_dim_size)
-            self.dataset_test = SpecDataset(self.test_path, mean, std, min_time_dim_size)
+            self.dataset_train = SpecDataset(self.train_path, mean, std, min_time_dim_size, self.args.model)
+            self.dataset_val = SpecDataset(self.val_path, mean, std, min_time_dim_size, self.args.model)
+            self.dataset_test = SpecDataset(self.test_path, mean, std, min_time_dim_size, self.args.model)
 
         num_workers = os.cpu_count()
         # the drop_last argument drops the last non-full batch of each worker’s dataset replica.
@@ -129,6 +130,10 @@ class Trainer(object):
             self.model = SpecAndEmbed(num_mels=NUM_MELS, genres=genres)
         elif args.model == 'SegmentedBaseline':
             self.model = SegmentedBaseline(NUM_MELS, genres)
+        elif args.model == 'Base2DCNN':
+            self.model = Base2DCNN(genres)
+        elif args.model == 'vgg':
+            self.model = models.vgg16(pretrained=True)
         else:
             self.model = Baseline(NUM_MELS, genres)
         
@@ -292,7 +297,7 @@ class Trainer(object):
                     y = batch[1].to(self.device)                    
                     # Feed forward the model.
                     prediction = self.model(x)
-
+                    
                 if test_Y is None and test_Y_hat is None:
                     test_Y_hat = prediction.max(1)[1].long().cpu()
                     test_Y = y.cpu()
@@ -337,13 +342,13 @@ def main():
     parser.add_argument('--debug', action='store_true',
                     help='Debug mode')
     parser.add_argument('--model', type=str, default='Baseline',
-                        choices=['Baseline', 'Q1', 'Q2', 'SpecAndEmbed', 'SegmentedBaseline'],
+                        choices=['Baseline', 'Q1', 'Q2', 'SpecAndEmbed', 'SegmentedBaseline','Base2DCNN', 'vgg'],
                         help='backbone model (default is Baseline)')
     parser.add_argument('--work_dir', default='experiment', type=str,
                     help='experiment directory.')
     parser.add_argument('--n_test', type=int, default=1,
                     help='number of tests with different seeds')
-    parser.add_argument('--n_epochs', type=int, default=30,
+    parser.add_argument('--n_epochs', type=int, default=10,
                     help='number of epochs')
     parser.add_argument('--use_segment', action='store_true',
                     help='Use segmented data')
@@ -376,6 +381,7 @@ def main():
         trainer = Trainer(args)
         trainer.train()
         test_accs[i] = trainer.test()
+        print(f'{i}th test')
         test_acc_log += (f'{test_accs[i]:5.2f},')
     args.logging(test_acc_log)
     test_avg_acc = np.mean(test_accs)
