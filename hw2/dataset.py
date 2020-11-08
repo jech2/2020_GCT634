@@ -9,6 +9,7 @@ from glob import glob
 import soundfile as sf
 import shutil
 from torch.utils.data import Dataset, DataLoader
+from musicnn.extractor import extractor
 
 # Mel-spectrogram setup.
 SR = 16000
@@ -21,7 +22,47 @@ genres = genres = ['classical', 'country', 'disco', 'hiphop', 'jazz', 'metal', '
 splits = ['train', 'val', 'test']
 genre_dict = {g: i for i, g in enumerate(genres)}
 
+# Dataset when using mel spec or hand made feature
 class SpecDataset(Dataset):
+    def __init__(self, data_dir, split, mean=0, std=1, time_dim_size=None, model=None):
+        self.data_dir = data_dir
+        self.split = split
+        self.mean = mean
+        self.std = std
+        self.time_dim_size = time_dim_size
+        self.model = model
+        
+        self.paths = glob(os.path.join(data_dir, split, '*.npy'))
+
+    def __getitem__(self, i):
+        # Get i-th spectrogram path.
+        path = self.paths[i]
+        # Extract the genre from its path.
+        genre = (path.split('/')[-1]).split('.')[0]
+        # Trun the genre into index number.
+        label = genre_dict[genre]
+        # Load the mel-spectrogram.
+        spec = np.load(path)
+        if self.time_dim_size is not None:
+            # Slice the temporal dimension with a fixed length so that they have
+            # the same temporal dimensionality in mini-batches.
+            spec = spec[:, :self.time_dim_size]
+        # Perform standard normalization using pre-computed mean and std.
+        spec = (spec - self.mean) / self.std
+
+        if self.model == 'Base2DCNN':     
+            spec = np.expand_dims(spec, axis=0)
+        elif (self.model not in ['vgg16', 'resnet18', 'resnet34', 'resnet50', 'resnet101']) and (self.time_dim_size is not None):
+            spec = np.expand_dims(spec, axis=0)
+            spec = np.repeat(spec, 3, axis=0)
+        spec = spec.astype('float32')
+        return spec, label
+    
+    def __len__(self):
+        return len(self.paths)
+
+# input : whole file list
+class SSSpecDataset(Dataset):
     def __init__(self, paths, mean=0, std=1, time_dim_size=None, model=None):
         self.paths = paths
         self.mean = mean
@@ -32,6 +73,7 @@ class SpecDataset(Dataset):
     def __getitem__(self, i):
         # Get i-th path.
         path = self.paths[i]
+
         # Get i-th spectrogram path.
         #path = 'gtzan/spec/' + path.replace('.wav', '.npy')
 
@@ -51,9 +93,9 @@ class SpecDataset(Dataset):
 
         if self.model == 'Base2DCNN':     
             spec = np.expand_dims(spec, axis=0)
-        elif (self.model == 'vgg16' or 'resnet18' or 'resnet34' or 'resnet50' or 'resnet101') and self.time_dim_size is not None:
-            spec = np.expand_dims(spec, axis=0)
-            spec = np.repeat(spec, 3, axis=0)
+        # elif (self.model == 'vgg16' or 'resnet18' or 'resnet34' or 'resnet50' or 'resnet101') and (self.time_dim_size is not None):
+        #     spec = np.expand_dims(spec, axis=0)
+        #     spec = np.repeat(spec, 3, axis=0)
         spec = spec.astype('float32')
         return spec, label
     
@@ -61,17 +103,16 @@ class SpecDataset(Dataset):
         return len(self.paths)
 
 class EmbedDataset(Dataset):
-    def __init__(self, paths):
-        self.paths = paths
+    def __init__(self, data_dir, split):
+        self.data_dir = data_dir
+        self.split = split
+        self.paths = glob(os.path.join(data_dir, split, '*.npy'))
 
     def __getitem__(self, i):
         # Get i-th path.
         path = self.paths[i]
-        # Get i-th embeddding path.
-        path = 'gtzan/embed/' + path.replace('.wav', '.npy')
-
         # Extract the genre from its path.
-        genre = path.split('/')[-2]
+        genre = (path.split('/')[-1]).split('.')[0]
         # Trun the genre into index number.
         label = genre_dict[genre]
 
@@ -79,26 +120,29 @@ class EmbedDataset(Dataset):
         embed = np.load(path)
 
         return embed, label
-    
+
     def __len__(self):
         return len(self.paths)
 
+# input path = file list
 class SpecEmbedDataset(Dataset):
-    def __init__(self, paths,  mean=0, std=1, time_dim_size=None):
-        self.paths = paths
+    def __init__(self, spec_dir, embed_dir, split, mean=0, std=1, time_dim_size=None):
+        self.spec_dir = spec_dir
+        self.embed_dir = embed_dir
+        self.split = split
         self.mean = mean
         self.std = std
         self.time_dim_size = time_dim_size
+        self.spec_paths = glob(os.path.join(spec_dir, split, '*.npy'))
+        self.embed_paths = glob(os.path.join(embed_dir, split, '*.npy'))
 
     def __getitem__(self, i):
         # Get i-th path.
-        path = self.paths[i]
-        # Get i-th spectrogram path.
-        spec_path = 'gtzan/spec/' + path.replace('.wav', '.npy')
-        embed_path = 'gtzan/msd_embed/' + path.replace('.wav', '.npy')
+        spec_path = self.spec_paths[i]
+        embed_path = self.embed_paths[i]
 
         # Extract the genre from its path.
-        genre = path.split('/')[-2]
+        genre = (spec_path.split('/')[-1]).split('.')[0]
         # Trun the genre into index number.
         label = genre_dict[genre]
 
@@ -115,30 +159,26 @@ class SpecEmbedDataset(Dataset):
         embed = np.load(embed_path)
 
         return [spec, embed], label
-    
+        
     def __len__(self):
-        return len(self.paths)
+        return len(self.spec_paths)
 
 def load_split(path):
     with open(path) as f:
         paths = [line.rstrip('\n') for line in f]
     return paths
 
-def extract_melspec(path, doSeg):
+def extract_melspec(in_base, out_base, doSeg):
     print('extracting melspec segment...')
 
     segment_size = 4 * SR // FFT_HOP # we will make each song into segments
-    print(segment_size)
-    if doSeg:
-        out_base = 'gtzan/seg_spec/'
-    else:
-        out_base = 'gtzan/ori_spec/'
+    print('segment size : ', segment_size)
     # Make directories to save mel-spectrograms.
     for split in splits:
         out_dir = out_base + split
         os.makedirs(out_dir, exist_ok=True)
     
-        for path_in in tqdm(glob(os.path.join(path,split,'*.wav'))):
+        for path_in in tqdm(glob(os.path.join(in_base,split,'*.wav'))):
             # The spectrograms will be saved under `gtzan/spec/` with an file extension of `.npy`
             filename = path_in.split('/')[-1]
             path_out = os.path.join(out_dir, filename)
@@ -170,14 +210,14 @@ def extract_melspec(path, doSeg):
                 np.save(path_out, melspec)
 
 # after augmentation, aug_wav folder created and total data x 2 
-def save_augmentation(path):
+def save_augmentation(in_base, out_base):
     print('do augmentation')
     # Make directories
     for split in splits:
-        out_dir = 'gtzan/aug_wav/' + split
+        out_dir = out_base + split
         os.makedirs(out_dir, exist_ok=True)
     
-        for path_in in tqdm(glob(os.path.join(path,split,'*.wav'))):
+        for path_in in tqdm(glob(os.path.join(in_base,split,'*.wav'))):
             filename = path_in.split('/')[-1]
             path_out = os.path.join(out_dir, filename)
             path_out_aug = os.path.join(out_dir, filename.replace('.wav', '_a.wav'))
@@ -207,7 +247,7 @@ def augmentation(y):
     y = y + 0.0025*wn
 
     # time shift
-    shft = np.random.randint(6000) # 0 ~ 8000 sample shift(0.5sec)
+    shft = np.random.randint(8000) # 0 ~ 8000 sample shift(0.5sec)
     y = np.roll(y, shft)
 
     # time stretch
@@ -219,21 +259,16 @@ def augmentation(y):
     
     return y
 
-def extract_features(path, doSeg):
+def extract_features(in_base, out_base, doSeg):
     print('extracting features...')
-
     segment_size = 4 * SR // FFT_HOP # we will make each song into segments
     print(segment_size)
-    if doSeg:
-        out_base = 'gtzan/seg_features/'
-    else:
-        out_base = 'gtzan/ori_features/'
     # Make directories to save mel-spectrograms.
     for split in splits:
         out_dir = out_base + split
         os.makedirs(out_dir, exist_ok=True)
     
-        for path_in in tqdm(glob(os.path.join(path,split,'*.wav'))):
+        for path_in in tqdm(glob(os.path.join(in_base,split,'*.wav'))):
             # The spectrograms will be saved under `gtzan/spec/` with an file extension of `.npy`
             filename = path_in.split('/')[-1]
             path_out = os.path.join(out_dir, filename)
@@ -246,12 +281,6 @@ def extract_features(path, doSeg):
             y, _ = librosa.load(path_in, sr=SR, res_type='kaiser_fast')
             # STFT
             D = np.abs(librosa.core.stft(y, hop_length=FFT_HOP, n_fft=FFT_SIZE, win_length=FFT_SIZE))
-            # # Compute power mel-spectrogram.
-            # melspec = librosa.feature.melspectrogram(sig, sr=SR, n_fft=FFT_SIZE, hop_length=FFT_HOP, n_mels=NUM_MELS)
-            # # Transform the power mel-spectrogram into the log compressed mel-spectrogram.
-            # melspec = librosa.power_to_db(melspec)
-            # # "float64" uses too much memory! "float32" has enough precision for spectrograms.
-            # melspec = melspec.astype('float32')
 
             # mfcc
             mfcc = librosa.feature.mfcc(y=y, sr=SR, n_mfcc=MFCC_DIM)
@@ -264,8 +293,7 @@ def extract_features(path, doSeg):
             
             # concatenate all features
             features = np.concatenate([mfcc, delta_mfcc, ddelta_mfcc, spec_centroid], axis=0)
-            #features = np.concatenate([tempogram, onset_env, mel_S, mfcc, delta_mfcc, ddelta_mfcc,spec_centroid], axis=0)
-
+            
             if doSeg:
                 current_seg = 0
                 while current_seg + segment_size <= features.shape[1]:
@@ -278,5 +306,44 @@ def extract_features(path, doSeg):
                 # Save the spectrogram.
                 np.save(path_out, features)
 
+def extract_embeddings(in_base, out_base, model='MSD_musicnn'):
+    # Make directories to save embeddings.
+    for split in splits:
+        out_dir = out_base + split
+        os.makedirs(out_dir, exist_ok=True)
+    
+        for path_in in tqdm(glob(os.path.join(in_base,split,'*.wav'))):
+            # The spectrograms will be saved under `gtzan/spec/` with an file extension of `.npy`
+            filename = path_in.split('/')[-1]
+            path_out = os.path.join(out_dir, filename)
+            
+            # Skip if the spectrogram already exists
+            if os.path.isfile(path_out):
+                continue
+
+            # Extract the embedding using the pre-trained model.
+            _, _, embeds = extractor(path_in, model=model, extract_features=True)
+            # Average the embeddings over temporal dimension.
+            embed = embeds['max_pool'].mean(axis=0)
+
+            # Save the embedding.
+            np.save(path_out, embed)
+
 if __name__ == "__main__":
-    extract_features('gtzan/split/', doSeg=False)
+    # Save augmented wav file
+    save_augmentation(in_base='gtzan/wav/', out_base='gtzan/aug_wav/')
+    # Extract GTT and MSD embeddings from original and augmented data
+    # extract_embeddings(in_base='gtzan/wav/', out_base='gtzan/embed/', model='MTT_musicnn')
+    # extract_embeddings(in_base='gtzan/wav/', out_base='gtzan/msd_embed/', model='MSD_musicnn')
+    # extract_embeddings(in_base='gtzan/aug_wav/', out_base='gtzan/aug_embed/', model='MTT_musicnn')
+    # extract_embeddings(in_base='gtzan/aug_wav/', out_base='gtzan/aug_msd_embed/', model='MSD_musicnn')
+    # Extract mel spec
+    extract_melspec(in_base='gtzan/wav/', out_base='gtzan/spec/', doSeg=False)   
+    extract_melspec(in_base='gtzan/wav/', out_base='gtzan/seg_spec/', doSeg=True)   
+    extract_melspec(in_base='gtzan/aug_wav/', out_base='gtzan/aug_spec/', doSeg=False)   
+    extract_melspec(in_base='gtzan/aug_wav/', out_base='gtzan/seg_aug_spec/', doSeg=True)   
+    # extract hand made features
+    extract_features(in_base='gtzan/wav/', out_base='gtzan/features/', doSeg=False)
+    extract_features(in_base='gtzan/wav/', out_base='gtzan/seg_features/', doSeg=True)
+    extract_features(in_base='gtzan/aug_wav/', out_base='gtzan/aug_features/', doSeg=False)
+    extract_features(in_base='gtzan/aug_wav/', out_base='gtzan/seg_aug_features/', doSeg=True)
