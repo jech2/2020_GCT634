@@ -11,7 +11,6 @@ import numpy as np
 import librosa
 from feature_summary import *
 
-
 from sklearn.linear_model import SGDClassifier
 from sklearn.metrics import confusion_matrix, multilabel_confusion_matrix
 from sklearn.svm import SVC
@@ -20,16 +19,14 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 from sklearn.mixture import GaussianMixture
-from plot_learning_curve import plot_learning_curve
 from sklearn.model_selection import cross_val_score
-#def gmm(train_X, train_Y, valid_X, valid_Y):
 
 def train_model(train_X, train_Y, valid_X, valid_Y, hyper_param1):
 
     # Choose a classifier (here, linear SVM)
-    # clf = SVC(kernel=hyper_param1, random_state=1234, C=0.0005)
+    clf = SVC(kernel=hyper_param1, random_state=1234, C=0.0005)
     # clf = KNeighborsClassifier(n_neighbors=10, algorithm=hyper_param1)
-    clf = MLPClassifier(random_state=1, alpha=0.0005, learning_rate_init=hyper_param1, activation='logistic', max_iter=1000)
+    #clf = MLPClassifier(random_state=1, alpha=0.0005, learning_rate_init=hyper_param1, activation='logistic', max_iter=1000)
     
     # train
     clf.fit(train_X, train_Y)
