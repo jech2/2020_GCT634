@@ -21,14 +21,12 @@ $ cd ..      # go back to your home folder for next steps
 ## Getting Started
 Main algorithm consists of three parts: Feature Extraction, Feature Summary, Train and Test.
 
-* feature_extraction.py: 
-* feature_summary.py: contains functions to summarize the extracted MFCC features
-* train_test.py: train models and test it 
-
 ### Feature Extraction
 feature_extraction.py loads audio files, extracts spectral features and codebook features, and stores them in the "spec" and "codebook" folder. 
-For spectral features, MFCC, delta MFCC, double delta MFCC, Spectral Centroid are used, making each audio file as (3*MFCC_DIM+1,Time_frame) matrix.
-Codebook is data compression method of K-means clustering. Simply, we are making each audio files as a length of K-dimentional vector, codebook. 
+
+- For spectral features, MFCC, delta MFCC, double delta MFCC, Spectral Centroid are used, making each audio file as (3*MFCC_DIM+1,time_frame) matrix.
+
+- Codebook is data compression method of K-means clustering. Simply, we are making each audio files as a length of K-dimentional vector, codebook. 
 To extract features, run:
 ```
 $ python feature_extraction.py
@@ -36,9 +34,9 @@ $ python feature_extraction.py
 If the run is successful (it takes some time), you will see that the "spec" and "codebook" folder is generated and it contains the extracted features:
 
 ### Feature summary
-For summarizing features, mean, max and min pooling in time domain are conducted, making each audio data as 3 * FEATURE_DIM + K dimensional vector. 
+For summarizing features, mean, max and min pooling in time domain are conducted, making each audio data as (3*FEATURE_DIM+K)-dimensional vector. 
 
-When run train_test.py, sum_feature() of feature_summary.py is called. After that, all data are concatenated in dim=1, making input shape as (3 * FEATURE_DIM + K, 1000), and used as an input of X.
+When run train_test.py, sum_feature() of feature_summary.py is called. After that, all data are concatenated in dim=1, making input shape as (3*FEATURE_DIM+K, 1000), and used as an input of X.
 
 ### Train and Test
 Finally, to test and train the best model:
@@ -47,3 +45,4 @@ $ python train_test.py
 ```
 
 If the run is successful, it will display the validation and test accuracy values.
+
