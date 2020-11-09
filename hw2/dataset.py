@@ -19,6 +19,7 @@ FFT_HOP = 512
 FFT_SIZE = 1024
 NUM_MELS = 96
 MFCC_DIM = 30
+SEGMENT_SIZE = 4 * SR // FFT_HOP # we will make each song into segments : 4 seconds
 
 genres = genres = ['classical', 'country', 'disco', 'hiphop', 'jazz', 'metal', 'pop', 'reggae']
 splits = ['train', 'val', 'test']
@@ -139,11 +140,9 @@ def load_split(path):
         paths = [line.rstrip('\n') for line in f]
     return paths
 
+# Extract mel-spectograms
 def extract_melspec(in_base, out_base, doSeg):
-    print('extracting melspec segment...')
-
-    segment_size = 4 * SR // FFT_HOP # we will make each song into segments
-    print('segment size : ', segment_size)
+    print('extracting melspec')
     # Make directories to save mel-spectrograms.
     for split in splits:
         out_dir = out_base + split
@@ -152,7 +151,7 @@ def extract_melspec(in_base, out_base, doSeg):
         for path_in in tqdm(glob(os.path.join(in_base,split,'*.wav'))):
             # The spectrograms will be saved under `gtzan/spec/` with an file extension of `.npy`
             filename = path_in.split('/')[-1]
-            path_out = os.path.join(out_dir, filename)
+            path_out = os.path.join(out_dir, filename.replace('.wav','.npy'))
             
             # Skip if the spectrogram already exists
             if os.path.isfile(path_out):
@@ -171,17 +170,18 @@ def extract_melspec(in_base, out_base, doSeg):
             # Do segmentation
             if doSeg:
                 current_seg = 0
-                while current_seg + segment_size <= melspec.shape[1]:
-                    idx = current_seg // segment_size
-                    path_out_seg = path_out.replace('.wav', f'_{idx}.npy')
+                while current_seg + SEGMENT_SIZE <= melspec.shape[1]:
+                    idx = current_seg // SEGMENT_SIZE
+                    path_out_seg = path_out.replace('.npy', f'_{idx}.npy')
                     # Save the spectrogram.
-                    np.save(path_out_seg, melspec[:,current_seg:current_seg + segment_size])
-                    current_seg += segment_size
+                    np.save(path_out_seg, melspec[:,current_seg:current_seg + SEGMENT_SIZE])
+                    current_seg += SEGMENT_SIZE
             else:
                 # Save the spectrogram.
                 np.save(path_out, melspec)
 
-# after augmentation, aug_wav folder created and total data x 2 
+# Save augmented files
+# After augmentation, aug_wav folder created and total data x 2 
 def save_augmentation(in_base, out_base):
     print('do augmentation')
     # Make directories
@@ -194,7 +194,7 @@ def save_augmentation(in_base, out_base):
             path_out = os.path.join(out_dir, filename)
             path_out_aug = os.path.join(out_dir, filename.replace('.wav', '_a.wav'))
             
-            # Skip if the spectrogram already exists
+            # Skip if the augmented file already exists
             if os.path.isfile(path_out) and os.path.isfile(path_out_aug):
                 continue
             
@@ -212,17 +212,17 @@ def save_augmentation(in_base, out_base):
             # Save augmented file
             sf.write(path_out_aug, sig, samplerate=SR)
 
-# do augmentation
+# Do augmentation
 def augmentation(y):
-    # white noise
+    # White noise
     wn = np.random.randn(len(y))
     y = y + 0.0025*wn
 
-    # time shift
+    # Time shift
     shft = np.random.randint(8000) # 0 ~ 8000 sample shift(0.5sec)
     y = np.roll(y, shft)
 
-    # time stretch
+    # Time stretch
     stretch = float(np.random.randint(8, 12))
     stretch = stretch / 10.0 # stretch ratio 0.8 ~ 1.2
     y = librosa.effects.time_stretch(y, stretch)
@@ -231,21 +231,20 @@ def augmentation(y):
     
     return y
 
+# (Beta version) Extract other features rather than using only mel spec
+# Here, MFCC, dMFCC, ddMFCC and spectral centroid is used
 def extract_features(in_base, out_base, doSeg):
     print('extracting features...')
-    segment_size = 4 * SR // FFT_HOP # we will make each song into segments
-    print(segment_size)
-    # Make directories to save mel-spectrograms.
+    # Make directories to save audio features
     for split in splits:
         out_dir = out_base + split
         os.makedirs(out_dir, exist_ok=True)
     
         for path_in in tqdm(glob(os.path.join(in_base,split,'*.wav'))):
-            # The spectrograms will be saved under `gtzan/spec/` with an file extension of `.npy`
             filename = path_in.split('/')[-1]
-            path_out = os.path.join(out_dir, filename)
+            path_out = os.path.join(out_dir, filename.replace('.wav','.npy'))
             
-            # Skip if the spectrogram already exists
+            # Skip if the file already exists
             if os.path.isfile(path_out):
                 continue
             
@@ -253,13 +252,11 @@ def extract_features(in_base, out_base, doSeg):
             y, _ = librosa.load(path_in, sr=SR, res_type='kaiser_fast')
             # STFT
             D = np.abs(librosa.core.stft(y, hop_length=FFT_HOP, n_fft=FFT_SIZE, win_length=FFT_SIZE))
-
             # mfcc
             mfcc = librosa.feature.mfcc(y=y, sr=SR, n_mfcc=MFCC_DIM)
             # delta mfcc and double delta
             delta_mfcc = librosa.feature.delta(mfcc)
             ddelta_mfcc = librosa.feature.delta(mfcc, order=2)
-            
             # spectral centroid
             spec_centroid = librosa.feature.spectral_centroid(S=D)
             
@@ -268,16 +265,17 @@ def extract_features(in_base, out_base, doSeg):
             
             if doSeg:
                 current_seg = 0
-                while current_seg + segment_size <= features.shape[1]:
-                    idx = current_seg // segment_size
-                    path_out_seg = path_out.replace('.wav', f'_{idx}.npy')
+                while current_seg + SEGMENT_SIZE <= features.shape[1]:
+                    idx = current_seg // SEGMENT_SIZE
+                    path_out_seg = path_out.replace('.npy', f'_{idx}.npy')
                     # Save the spectrogram.
-                    np.save(path_out_seg, features[:,current_seg:current_seg + segment_size])
-                    current_seg += segment_size
+                    np.save(path_out_seg, features[:,current_seg:current_seg + SEGMENT_SIZE])
+                    current_seg += SEGMENT_SIZE
             else:
                 # Save the spectrogram.
                 np.save(path_out, features)
 
+# Extract embeddings from musicnn
 def extract_embeddings(in_base, out_base, model='MSD_musicnn'):
     # Make directories to save embeddings.
     for split in splits:
@@ -285,11 +283,10 @@ def extract_embeddings(in_base, out_base, model='MSD_musicnn'):
         os.makedirs(out_dir, exist_ok=True)
     
         for path_in in tqdm(glob(os.path.join(in_base,split,'*.wav'))):
-            # The spectrograms will be saved under `gtzan/spec/` with an file extension of `.npy`
             filename = path_in.split('/')[-1]
-            path_out = os.path.join(out_dir, filename)
+            path_out = os.path.join(out_dir, filename.replace('.wav','.npy'))
             
-            # Skip if the spectrogram already exists
+            # Skip if the embeddings file already exists
             if os.path.isfile(path_out):
                 continue
 
@@ -301,30 +298,29 @@ def extract_embeddings(in_base, out_base, model='MSD_musicnn'):
             # Save the embedding.
             np.save(path_out, embed)
 
+# Based on the seg_spec file name, copy embed file from gtzan/embed/ to gtzan/seg_embed
 # copy_embeddings_for_segment('gtzan/seg_spec/', 'gtzan/embed/', 'gtzan/seg_embed/')
 def copy_embeddings_for_segment(pair_base, in_base, out_base):
     print('copy embeddings for segment...')
-
-    # Make directories to save mel-spectrograms.
+    # Make directories to save embeddings
     for split in splits:
         out_dir = out_base + split
         os.makedirs(out_dir, exist_ok=True)
     
         for path_in in tqdm(glob(os.path.join(in_base,split,'*.npy'))):
-            # The spectrograms will be saved under `gtzan/spec/` with an file extension of `.npy`
             filename = path_in.split('/')[-1]
             pair_file = os.path.join(pair_base, split, filename)
             path_out = os.path.join(out_dir, filename)
             
-            # Skip if the spectrogram already exists
+            # Skip if embeddings file already exists
             if os.path.isfile(path_out):
                 continue
-            # Load the mel-spectrogram.
+            # Load the embedding file and copy it
             embed = np.load(path_in)
             current_seg = 0
             for idx in range(10):
-                pair_seg = pair_file.replace('.wav.npy', f'_{idx}.npy')
-                path_out_seg = path_out.replace('.wav.npy', f'_{idx}.npy')
+                pair_seg = pair_file.replace('.npy', f'_{idx}.npy')
+                path_out_seg = path_out.replace('.npy', f'_{idx}.npy')
                 if os.path.isfile(pair_seg):
                     np.save(path_out_seg, embed)
                 else:
