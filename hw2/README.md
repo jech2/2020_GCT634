@@ -1,9 +1,12 @@
-# Homework #2: Music Genre Classification [Colab Notebook](https://colab.research.google.com/drive/1-9SrI7M440hQ6F2Q7KLiBrFjzSTfyG57?usp=sharing)
-Music genre classification is an important task that can be used in many musical applications such as music search or recommender systems. Your mission is to build your own Convolutional Neural Network (CNN) model to classify audio files into different music genres. Specifically, the goals of this homework are as follows:
+# Music Genre Classification
+Music genre classification is an important task that can be used in many musical applications such as music search or recommender systems. 
 
-* Experiencing the whole pipeline of deep learning based system: data preparation, feature extraction, model training and evaluation
-* Getting familiar with the CNN architectures for music classification tasks
-* Using Pytorch in practice
+Abstract:
+* Implementation of CNN based models for music genre classification
+* 1D conv, 2D conv, Extracted embeddings with 2-layer MLP, VGG and ResNet with different number of layers  
+* Offline data augmentation ( white noise, time shift, time stretch )
+* Segmentation of audio samples into 4 secs segments
+* Finally, get 86% accuracy when using ResNet34 Finetuning and MSD musicnn together!
 
 ## Dataset
 We use the [GTZAN](http://marsyas.info/downloads/datasets.html) dataset which has been the most widely used in the music genre classification task. 
@@ -19,31 +22,25 @@ split:
 test.txt  train.txt
 
 wav:
-blues     classical country   disco     hiphop    jazz      metal     pop       reggae    rock
+classical  country   disco     hiphop    jazz      metal     pop       reggae
 $ cd ..      # go back to your home folder for next steps
 ```
 
+### Dependency
+* Python 3.7
+* Numpy 1.16.6
+* Librosa 0.8.0
+* Pytorch 1.6.0
+* Scikit Learn 0.23.2
+* musicnn
+* tqdm
 
 ## Training CNNs from Scratch
-The baseline code is provided so that you can easily start the homework and also compare with your own algorithm.
 The baseline model extracts mel-spectrogram and has a simple set of CNN model 
 that includes convolutional layer, batch normalization, maxpooling and dense layer.
 
-### Question 1: Implement a CNN based on a given model specification
-An architecture of CNN will be provided. Implement a CNN following the architecture.
 
-## Exploiting Prior Knowledge using Pre-trained Models
-Someone who knows how to play acoustic guitars might be better at playing electric guitars than who never played a guitar.
-Here, we will use pre-trained models from [`musicnn`](https://github.com/jordipons/musicnn) (pronounced as "musician"), which includes CNNs already trained on a large amount of songs.
-
-### Question 2: Train a 2-layer MLP using the extracted features from the Pre-trained Model
-Create 2-layer MLP model and train the model using the extracted features.
-
-
-## Improving Algorithms [[Leader Board]](https://docs.google.com/spreadsheets/d/1bzkMFeXABTae7kDJG6QCU_qnP1ppJDoNQLgGz3ksJu0/edit?usp=sharing)
-### Question 3: Improve performances of models
-Now it is your turn. You should improve the baseline code with your own algorithm. There are many ways to improve it. The followings are possible ideas: 
-
+## Improving Algorithms 
 * The first thing to do is to segment audio clips and generate more data. The baseline code utilizes the whole mel-spectrogram as an input to the network (e.g. 128x1287 dimensions). Try to make the network input between 3-5 seconds segment and average the predictions of the segmentations for an audio clip.
 
 * You can try training a model using both mel-spectrograms and features extracted using the pre-trained models. The baseline code is using a pre-trained model trained on 19k songs, but `musicnn` also has models trained on 200k songs! Try using the model giving `model='MSD_musicnn'` option on feature extraction.
@@ -66,16 +63,3 @@ Now it is your turn. You should improve the baseline code with your own algorith
 * You can also use ResNet or other CNNs with skip connections. 
 
 * Furthermore, you can augment data using digital audio effects.
-
-
-## Deliverables
-You should submit your Python code (`.ipynb` or `.py` files) and homework report (.pdf file) to KLMS. The report should include:
-* Algorithm Description
-* Experiments and Results
-* Discussion
-
-## Note
-The code is written using PyTorch but you can use TensorFlow if you want for question 3.
-
-## Credit
-Thie homework was implemented by Jongpil Lee, Soonbeom Choi and Taejun Kim in the KAIST Music and Audio Computing Lab.
