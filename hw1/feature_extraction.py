@@ -47,21 +47,13 @@ def extract_spec(dataset='train'):
         # mel spectrogram
         mel_S = librosa.feature.melspectrogram(S=D, sr=sr, n_mels=128)
         S_dB = librosa.power_to_db(mel_S, ref=np.max) #log compression
-        
-        # onset env and tempogram : not used in the final report
-        #onset_env = librosa.onset.onset_strength(y,sr)
-        #onset_env = onset_env.reshape(1,44)
-
-        #tempogram = librosa.feature.tempogram(y=y, sr=sr, onset_envelope=onset_env)
-        #tempogram = tempogram.reshape(tempogram.shape[1], tempogram.shape[2])
-    
+            
         # spectral centroid
         spec_centroid = librosa.feature.spectral_centroid(S=D)
         
         # concatenate all features
         features = np.concatenate([mfcc, delta_mfcc, ddelta_mfcc, spec_centroid], axis=0)
-        #features = np.concatenate([tempogram, onset_env, mel_S, mfcc, delta_mfcc, ddelta_mfcc,spec_centroid], axis=0)
-
+        
         # save mfcc as a file
         file_name = file_name.replace('.wav','.npy')
         save_file = spec_path + file_name
@@ -74,13 +66,11 @@ def extract_spec(dataset='train'):
 
 def extract_codebook(dataset='train'):
     f = open(data_path + dataset + '_list.txt','r')
-
     i = 0
     for file_name in f:
         i = i + 1
         if not (i % 10):
             print(i)
-
         # load audio file
         file_name = file_name.rstrip('\n')
         file_path = data_path + file_name
@@ -122,9 +112,9 @@ def extract_codebook(dataset='train'):
     f.close();
 
 if __name__ == '__main__':
-    #extract_spec(dataset='train')                 
-    #extract_spec(dataset='valid')                                  
-    #extract_spec(dataset='test')
+    extract_spec(dataset='train')                 
+    extract_spec(dataset='valid')                                  
+    extract_spec(dataset='test')
     extract_codebook(dataset='train')
     extract_codebook(dataset='valid')
     extract_codebook(dataset='test')
