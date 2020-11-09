@@ -4,25 +4,22 @@ import time
 import os
 import random
 import librosa
-import torch
-import torch.nn as nn
 from tqdm import tqdm
 from glob import glob
+
+import torch
+import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
+import torchvision.models as models
+from sklearn.metrics import confusion_matrix
+
 from exp_utils import create_exp_dir, set_seed
 from dataset import SpecDataset, EmbedDataset, SpecEmbedDataset, load_split, extract_melspec, save_augmentation
 from model.Baseline import Baseline
 from model.Q1 import Q1
 from model.Q2 import Q2
 from model.Q3 import SpecAndEmbed, Base2DCNN
-import torchvision.models as models
-from sklearn.metrics import confusion_matrix
 
-# Mel-spectrogram setup.
-SR = 16000
-FFT_HOP = 512
-FFT_SIZE = 1024
-NUM_MELS = 96
 
 genres = genres = ['classical', 'country', 'disco', 'hiphop', 'jazz', 'metal', 'pop', 'reggae']
 
@@ -86,12 +83,12 @@ class Trainer(object):
 
         # Model selection
         if args.model == 'Q1':
-            self.model = Q1(num_mels=NUM_MELS, genres=genres)
+            self.model = Q1(num_mels=self.args.num_mels, genres=genres)
         elif args.model == 'Q2':
             self.embed_size = self.dataset_train[0][0].shape[0]
             self.model = Q2(embed_size=self.embed_size, genres=genres)
         elif args.model == 'SpecAndEmbed':
-            self.model = SpecAndEmbed(num_mels=NUM_MELS, genres=genres, model=self.args.model2)
+            self.model = SpecAndEmbed(num_mels=self.args.num_mels, genres=genres, model=self.args.model2)
         elif args.model == 'Base2DCNN':
             self.model = Base2DCNN(genres)
         elif args.model == 'vgg13':
@@ -123,7 +120,7 @@ class Trainer(object):
             fc_in_features = self.model.fc.in_features
             self.model.fc = nn.Linear(in_features=fc_in_features, out_features=len(genres))
         else:
-            self.model = Baseline(NUM_MELS, genres)
+            self.model = Baseline(self.args.num_mels, genres)
         
         # Define a loss function
         self.criterion = torch.nn.CrossEntropyLoss()
@@ -149,19 +146,16 @@ class Trainer(object):
     # Util function for computing accuracy for segmented input(only for test) : max pooling.
     def segment_accuracy(self, source, target):
         if torch.unique(target).shape[0] is not 1 :
-            print('something is wrong')
+            self.args.logging('check test set is mistakenly shuffled or not')
             exit()
         source = source.max(1)[1].long().cpu()
         target = target.cpu()
-        #voted_label = source[torch.argmax(source)] 
         counts = torch.zeros(len(genres)) # counts : 0 ~ 7
         for i in range(self.args.test_bsz): # source : 0 ~ 6 
             counts[source[i]] += 1
         voted_label = torch.argmax(counts)
         label = target[0]
         correct = (voted_label == label).sum().item()
-        #print(source, target)
-        #print(voted_label, label, correct)
         return voted_label, label, correct
 
     def print_confusion_matrix(self, test_Y_c, test_Y_hat_c, labels=genres):
@@ -339,25 +333,31 @@ def main():
     parser = argparse.ArgumentParser(description="HW2 Training")
     parser.add_argument('--title', type=str, default="", help='experiment description')
     parser.add_argument('--debug', action='store_true', help='Debug mode')
+    # Directory Settings
+    parser.add_argument('--work_dir', default='experiment', type=str, help='experiment directory')
+    parser.add_argument('--data_dir', default='gtzan/spec/', type=str, help='data directory')
+    parser.add_argument('--embed_dir', default='gtzan/embed/', type=str, 
+                        help='data directory for embedding when using both mel and embeddings')
+    # Model 
     parser.add_argument('--model', type=str, default='Baseline',
                         choices=['Baseline', 'Q1', 'Q2', 'SpecAndEmbed','Base2DCNN', 
                         'vgg13', 'vgg16', 'vgg19', 'resnet18', 'resnet34', 'resnet50', 'resnet101'],
                         help='backbone model (default is Baseline)')
     parser.add_argument('--model2', type=str, default='Base2DCNN', choices=['Q1','Base2DCNN', 'resnet34'],
-                        help='backbone model for embed model')
+                        help='backbone model for embed model')                        
+    parser.add_argument('--num_mels', type=int, default=96, help='number of mel bins')
+    # Optimizer 
     parser.add_argument('--optimizer', type=str, default='Adam', choices=['SGD', 'Adam'], help='optimizer')
-    parser.add_argument('--work_dir', default='experiment', type=str, help='experiment directory')
-    parser.add_argument('--data_dir', default='gtzan/spec/', type=str, help='data directory')
-    parser.add_argument('--embed_dir', default='gtzan/embed/', type=str, 
-                        help='data directory for embedding when using both mel and embeddings')
-    parser.add_argument('--do_test', action='store_true', help='do test')
-    parser.add_argument('--n_train', type=int, default=1, help='number of training with different seeds')
-    parser.add_argument('--n_epochs', type=int, default=10, help='number of epochs')
-    parser.add_argument('--use_segment', action='store_true', help='Use segmented data')
     parser.add_argument('--lr', type=float, default=0.0001, help='learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
     parser.add_argument('--weight_decay', type=float, default=0.0, help='weight decay')
-    parser.add_argument('--train_bsz', type=int, default=128, help='train batch size')
+    # Training information
+    parser.add_argument('--do_test', action='store_true', help='do test')
+    parser.add_argument('--n_train', type=int, default=1, help='number of training with different seeds')
+    parser.add_argument('--n_epochs', type=int, default=100, help='number of epochs')
+    parser.add_argument('--use_segment', action='store_true', help='Use segmented data')
+    # Batch size settings
+    parser.add_argument('--train_bsz', type=int, default=32, help='train batch size')
     parser.add_argument('--val_bsz', type=int, default=16, help='train batch size')
     parser.add_argument('--test_bsz', type=int, default=7, help='train batch size')
 
@@ -368,12 +368,13 @@ def main():
     print(f'PyTorch version: {torch.__version__}')
     print(f'Librosa version: {librosa.__version__}')
     
+    # Create Experiment Directory : if args.debug=False, not logging
     args.work_dir = f'{args.work_dir}/{args.model}'
     args.title = time.strftime('%Y%m%d-%H%M%S-') + args.title
     args.work_dir = os.path.join(args.work_dir, args.title)
     args.logging = create_exp_dir(args.work_dir, debug=args.debug)
 
-    # args information logging!
+    # Args information logging!
     args.logging('=' * 100)
     for k, v in args.__dict__.items():
         args.logging('    - {} : {}'.format(k, v))
@@ -388,18 +389,21 @@ def main():
     test_accs = np.zeros(args.n_train)
     test_acc_log = "| test accs : "
     
+    # total n_train number of independent training
     for i in range(args.n_train):
         try:
             args.logging(f'{i}th independent training')
+            # Seed settings
             manualSeed = random.randint(1, 10000) # use if you want new results
             args.logging(f'Seed: {manualSeed}')
             set_seed(manualSeed)
             args.seed = manualSeed
+            # Train
             trainer = Trainer(args)
             train_accs[i], val_accs[i] = trainer.train(i)
             train_acc_log += f'{train_accs[i]*100:5.2f}%, '
             val_acc_log += f'{val_accs[i]*100:5.2f}%, '
-        except KeyboardInterrupt:
+        except KeyboardInterrupt: # ctrl + C early stopping
             args.logging('-' * 100)
             args.logging('Exiting from training early')
 
@@ -408,6 +412,7 @@ def main():
             test_acc_log += f'{test_accs[i]*100:5.2f}%, '
         args.logging('=' * 100)
 
+    # Calculate average train, validation, test accuracy
     args.logging(train_acc_log)
     args.logging(val_acc_log)
     train_avg_acc = np.mean(train_accs)
@@ -416,6 +421,7 @@ def main():
     val_avg_log = f'| avg val acc for {args.n_train} trials is {val_avg_acc*100:5.2f}%'
     args.logging(train_avg_log)
     args.logging(val_avg_log)
+
     if args.do_test:
         args.logging(test_acc_log)
         test_avg_acc = np.mean(test_accs)

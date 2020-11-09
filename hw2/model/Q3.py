@@ -2,15 +2,17 @@ import numpy as np
 import os
 import torch
 import torch.nn as nn
-from model.Q1 import Q1
-from model.Q2 import Q2
+# from model.Q1 import Q1
+# from model.Q2 import Q2
 import torchvision.models as models
 
-
+# input : mel spec + embedding features
+# Model that use spectral features and embedding features
 class SpecAndEmbed(nn.Module):
   def __init__(self, num_mels, genres, model=None):
     super(SpecAndEmbed, self).__init__()
     self.model = model
+    # Model settings of spec_cov
     if self.model == "Q1":
       self.spec_conv = Q1(num_mels=num_mels, genres=genres)
     elif self.model == "Base2DCNN":
@@ -19,7 +21,7 @@ class SpecAndEmbed(nn.Module):
       self.spec_conv = models.resnet34(pretrained=True)
       fc_in_features = self.spec_conv.fc.in_features
       self.spec_conv.fc = nn.Linear(in_features=fc_in_features, out_features=len(genres))
-       
+    # Model settings of embed_mlp
     self.embed_mlp = Q2(genres=genres)
     self.BatchNorm = nn.BatchNorm1d(len(genres))
     self.ReLU = nn.ReLU()
@@ -31,7 +33,7 @@ class SpecAndEmbed(nn.Module):
     spec = self.BatchNorm(spec)
     spec = self.ReLU(spec)
     embed = self.embed_mlp(embed)
-    #embed = self.BatchNorm(embed)
+    #embed = self.BatchNorm(embed) # not use this
     embed = self.ReLU(embed)
     out = torch.cat([spec, embed], dim=1)
     out = self.linear(out)
@@ -89,8 +91,6 @@ if __name__ == "__main__":
     from torchsummary import summary
     genres = ['classical', 'country', 'disco', 'hiphop', 'jazz', 'metal', 'pop', 'reggae']
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # PyTorch v0.4.0
-    net = Segmented2DCNN(genres).to(device)
-    summary(net, (1, 96, 125))
     net = Base2DCNN(genres).to(device)
     summary(net, (1, 96, 938))
     #summary(net, (1, 96, 125))

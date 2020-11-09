@@ -1,15 +1,17 @@
 import numpy as np
 import random
 import os
-import librosa
-import torch
-import torch.nn as nn
 from tqdm import tqdm
 from glob import glob
 import soundfile as sf
 import shutil
-from torch.utils.data import Dataset, DataLoader
+
+import librosa
 from musicnn.extractor import extractor
+
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
 
 # Mel-spectrogram setup.
 SR = 16000
@@ -22,7 +24,7 @@ genres = genres = ['classical', 'country', 'disco', 'hiphop', 'jazz', 'metal', '
 splits = ['train', 'val', 'test']
 genre_dict = {g: i for i, g in enumerate(genres)}
 
-# Dataset when using mel spec or hand made feature
+# Dataset when using mel spec as input
 class SpecDataset(Dataset):
     def __init__(self, data_dir, split, mean=0, std=1, time_dim_size=None, model=None):
         self.data_dir = data_dir
@@ -50,17 +52,18 @@ class SpecDataset(Dataset):
         # Perform standard normalization using pre-computed mean and std.
         spec = (spec - self.mean) / self.std
 
+        # whether model is 1D, 2D or not set shape
         if self.model in ['Base2DCNN', 'Segmented2DCNN']:     
             spec = np.expand_dims(spec, axis=0)
         elif (self.model in ['vgg13', 'vgg16', 'vgg19', 'resnet18', 'resnet34', 'resnet50', 'resnet101']) :
             spec = np.expand_dims(spec, axis=0)
             spec = np.repeat(spec, 3, axis=0)
-        spec = spec.astype('float32')
         return spec, label
     
     def __len__(self):
         return len(self.paths)
 
+# Dataset only for Q2
 class EmbedDataset(Dataset):
     def __init__(self, data_dir, split):
         self.data_dir = data_dir
@@ -83,7 +86,7 @@ class EmbedDataset(Dataset):
     def __len__(self):
         return len(self.paths)
 
-# input path = file list
+# Dataset for SpecAndEmbed model
 class SpecEmbedDataset(Dataset):
     def __init__(self, spec_dir, embed_dir, split, mean=0, std=1, time_dim_size=None, model=None):
         self.spec_dir = spec_dir
@@ -116,6 +119,7 @@ class SpecEmbedDataset(Dataset):
         # Perform standard normalization using pre-computed mean and std.
         spec = (spec - self.mean) / self.std
 
+        # whether model is 1D, 2D or not set shape
         if self.model == 'Base2DCNN':     
             spec = np.expand_dims(spec, axis=0)
         elif (self.model in ['vgg13', 'vgg16', 'vgg19', 'resnet18', 'resnet34', 'resnet50', 'resnet101']) :
@@ -164,6 +168,7 @@ def extract_melspec(in_base, out_base, doSeg):
             # "float64" uses too much memory! "float32" has enough precision for spectrograms.
             melspec = melspec.astype('float32')
             
+            # Do segmentation
             if doSeg:
                 current_seg = 0
                 while current_seg + segment_size <= melspec.shape[1]:
@@ -328,9 +333,9 @@ def copy_embeddings_for_segment(pair_base, in_base, out_base):
 
 if __name__ == "__main__":
     # Save augmented wav file
-    #save_augmentation(in_base='gtzan/wav/', out_base='gtzan/aug_wav/')
+    save_augmentation(in_base='gtzan/wav/', out_base='gtzan/aug_wav/')
     # Extract GTT and MSD embeddings from original and augmented data
-    # extract_embeddings(in_base='gtzan/wav/', out_base='gtzan/embed/', model='MTT_musicnn')
+    extract_embeddings(in_base='gtzan/wav/', out_base='gtzan/embed/', model='MTT_musicnn')
     # extract_embeddings(in_base='gtzan/wav/', out_base='gtzan/msd_embed/', model='MSD_musicnn')
     # extract_embeddings(in_base='gtzan/aug_wav/', out_base='gtzan/aug_embed/', model='MTT_musicnn')
     # extract_embeddings(in_base='gtzan/aug_wav/', out_base='gtzan/aug_msd_embed/', model='MSD_musicnn')
@@ -348,4 +353,4 @@ if __name__ == "__main__":
     # copy_embeddings_for_segment(pair_base='gtzan/seg_spec/', in_base='gtzan/embed/', out_base='gtzan/seg_embed/')
     # copy_embeddings_for_segment(pair_base='gtzan/seg_spec/', in_base='gtzan/msd_embed/', out_base='gtzan/seg_msd_embed/')
     # copy_embeddings_for_segment(pair_base='gtzan/seg_aug_spec/',in_base='gtzan/aug_embed/', out_base='gtzan/seg_aug_embed/')
-    copy_embeddings_for_segment(pair_base='gtzan/seg_aug_spec/',in_base='gtzan/aug_msd_embed/', out_base='gtzan/seg_aug_msd_embed/')
+    # copy_embeddings_for_segment(pair_base='gtzan/seg_aug_spec/',in_base='gtzan/aug_msd_embed/', out_base='gtzan/seg_aug_msd_embed/')

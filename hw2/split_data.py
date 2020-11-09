@@ -3,16 +3,17 @@ import pandas as pd
 import numpy as np
 import os
 import shutil
+
+from sklearn.model_selection import StratifiedShuffleSplit
+
+from tqdm import tqdm
 from dataset import load_split
 # Stratified ShuffleSplit cross-validator 
 # provides train/test indices to split data in train/test sets.
-from sklearn.model_selection import StratifiedShuffleSplit
-from tqdm import tqdm
-
 
 genres = genres = ['classical', 'country', 'disco', 'hiphop', 'jazz', 'metal', 'pop', 'reggae']
 genre_dict = {g: i for i, g in enumerate(genres)}
-
+# Split validation set from train set
 def split_val():
     train_list = load_split('gtzan/split/train.txt')
     #print(train_list)
@@ -77,14 +78,15 @@ def make_segmented_list():
                 segmented_path = path.replace('.wav', f'_{idx}.wav')
                 f.write("%s\n" % segmented_path)
 
+# split files in txt into separate folder
 def split_wavs():
     train_list = load_split('gtzan/split/splited_train.txt')
     val_list = load_split('gtzan/split/splited_val.txt')
     test_list = load_split('gtzan/split/test.txt')
 
-    train_out_dir = 'gtzan/split/train/'
-    val_out_dir = 'gtzan/split/val/'
-    test_out_dir = 'gtzan/split/test/'
+    train_out_dir = 'gtzan/wav/train/'
+    val_out_dir = 'gtzan/wav/val/'
+    test_out_dir = 'gtzan/wav/test/'
     os.makedirs(train_out_dir, exist_ok=True)
     os.makedirs(val_out_dir, exist_ok=True)
     os.makedirs(test_out_dir, exist_ok=True)
@@ -100,6 +102,6 @@ def split_wavs():
         shutil.copy(src, test_out_dir)
 
 if __name__ == '__main__':
-    #split_val()
+    split_val()
     #make_segmented_list()
-    #split_wavs()
+    split_wavs()
