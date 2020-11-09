@@ -4,12 +4,22 @@ import torch
 import torch.nn as nn
 from model.Q1 import Q1
 from model.Q2 import Q2
+import torchvision.models as models
+
 
 class SpecAndEmbed(nn.Module):
-  def __init__(self, num_mels, genres):
+  def __init__(self, num_mels, genres, model=None):
     super(SpecAndEmbed, self).__init__()
-
-    self.spec_conv = Q1(num_mels=num_mels, genres=genres)
+    self.model = model
+    if self.model == "Q1":
+      self.spec_conv = Q1(num_mels=num_mels, genres=genres)
+    elif self.model == "Base2DCNN":
+      self.spec_conv = Base2DCNN(genres)
+    elif self.model == "resnet34":
+      self.spec_conv = models.resnet34(pretrained=True)
+      fc_in_features = self.spec_conv.fc.in_features
+      self.spec_conv.fc = nn.Linear(in_features=fc_in_features, out_features=len(genres))
+       
     self.embed_mlp = Q2(genres=genres)
     self.BatchNorm = nn.BatchNorm1d(len(genres))
     self.ReLU = nn.ReLU()
@@ -29,10 +39,8 @@ class SpecAndEmbed(nn.Module):
 
 # input : mel spec
 class Base2DCNN(nn.Module):
-  def __init__(self, genres, use_segment):
+  def __init__(self, genres):
     super(Base2DCNN, self).__init__()
-    if (not use_segment):
-      self.conv1
     self.conv0 = nn.Sequential(
       nn.Conv2d(1, out_channels=16, kernel_size=7, stride=1, padding=3),
       nn.BatchNorm2d(16),
@@ -61,8 +69,8 @@ class Base2DCNN(nn.Module):
       nn.MaxPool2d(kernel_size=2, stride=2)
     )
     
-    # # Aggregate features over temporal dimension.
-    # self.final_pool = nn.AdaptiveAvgPool2d(1)
+    # Aggregate features over temporal dimension.
+    self.final_pool = nn.AdaptiveAvgPool2d(1)
 
     # Predict genres using the aggregated features.
     self.linear = nn.Linear(128, len(genres))
@@ -73,7 +81,7 @@ class Base2DCNN(nn.Module):
     x = self.conv1(x)
     x = self.conv2(x)
     x = self.conv3(x)
-    #x = self.final_pool(x)
+    x = self.final_pool(x)
     x = self.linear(torch.squeeze(x))
     return x
 
@@ -81,5 +89,8 @@ if __name__ == "__main__":
     from torchsummary import summary
     genres = ['classical', 'country', 'disco', 'hiphop', 'jazz', 'metal', 'pop', 'reggae']
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # PyTorch v0.4.0
-    net = Base2DCNN(genres).to(device)
+    net = Segmented2DCNN(genres).to(device)
     summary(net, (1, 96, 125))
+    net = Base2DCNN(genres).to(device)
+    summary(net, (1, 96, 938))
+    #summary(net, (1, 96, 125))

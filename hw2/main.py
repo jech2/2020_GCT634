@@ -11,7 +11,7 @@ from glob import glob
 from torch.utils.data import Dataset, DataLoader
 from exp_utils import create_exp_dir, set_seed
 from dataset import SpecDataset, EmbedDataset, SpecEmbedDataset, load_split, extract_melspec, save_augmentation
-from model.Baseline import Baseline, SegmentedBaseline
+from model.Baseline import Baseline
 from model.Q1 import Q1
 from model.Q2 import Q2
 from model.Q3 import SpecAndEmbed, Base2DCNN
@@ -24,18 +24,14 @@ FFT_HOP = 512
 FFT_SIZE = 1024
 NUM_MELS = 96
 
-# Data processing setup.
-BATCH_SIZE = 32
-TEST_BATCH_SIZE = 7
-
 genres = genres = ['classical', 'country', 'disco', 'hiphop', 'jazz', 'metal', 'pop', 'reggae']
 
 class Trainer(object):
     def __init__(self, args=None):
         self.args = args
-        #self.best_val_loss = 987654321.0;
-        self.best_val_acc = 0.0;
-        self.best_train_acc = 0.0;
+        #self.best_val_loss = 987654321.0
+        self.best_val_acc = 0.0
+        self.best_train_acc = 0.0
         
         # Dataset setting based on model selection
         if args.model == 'Q2':
@@ -46,10 +42,11 @@ class Trainer(object):
             # Load all spectrograms.
             if args.model == 'SpecAndEmbed':
                 dataset_train = SpecEmbedDataset(self.args.data_dir, self.args.embed_dir, 'train')
+                specs = [s[0] for s, _ in dataset_train]
             else:
                 dataset_train = SpecDataset(self.args.data_dir, 'train')
-
-            specs = [s[0] for s, _ in dataset_train]
+                specs = [s for s, _ in dataset_train]
+                
             # Compute the minimum temporal dimension size.
             time_dims = [s.shape[1] for s in specs]
             min_time_dim_size = min(time_dims)
@@ -65,11 +62,11 @@ class Trainer(object):
             # based on that, make spec dataset
             if args.model == 'SpecAndEmbed':
                 self.dataset_train = SpecEmbedDataset(self.args.data_dir, self.args.embed_dir, 
-                                    'train', mean, std, min_time_dim_size)
+                                    'train', mean, std, min_time_dim_size, self.args.model2)
                 self.dataset_val = SpecEmbedDataset(self.args.data_dir, self.args.embed_dir, 
-                                    'val', mean, std, min_time_dim_size)
+                                    'val', mean, std, min_time_dim_size, self.args.model2)
                 self.dataset_test = SpecEmbedDataset(self.args.data_dir, self.args.embed_dir, 
-                                    'test', mean, std, min_time_dim_size)
+                                    'test', mean, std, min_time_dim_size, self.args.model2)
             else:
                 self.dataset_train = SpecDataset(self.args.data_dir, 'train', mean, std, min_time_dim_size, self.args.model)
                 self.dataset_val = SpecDataset(self.args.data_dir, 'val', mean, std, min_time_dim_size, self.args.model)
@@ -83,9 +80,9 @@ class Trainer(object):
         num_workers = os.cpu_count()
 
         # the drop_last argument drops the last non-full batch of each worker’s dataset replica.
-        self.loader_train = DataLoader(self.dataset_train, batch_size=BATCH_SIZE, shuffle=True, num_workers=num_workers, drop_last=True)
-        self.loader_val = DataLoader(self.dataset_val, batch_size=BATCH_SIZE, shuffle=True, num_workers=num_workers, drop_last=True)
-        self.loader_test = DataLoader(self.dataset_test, batch_size=TEST_BATCH_SIZE, shuffle=False, num_workers=num_workers, drop_last=False)
+        self.loader_train = DataLoader(self.dataset_train, batch_size=self.args.train_bsz, shuffle=True, num_workers=num_workers, drop_last=True)
+        self.loader_val = DataLoader(self.dataset_val, batch_size=self.args.val_bsz, shuffle=True, num_workers=num_workers, drop_last=True)
+        self.loader_test = DataLoader(self.dataset_test, batch_size=self.args.test_bsz, shuffle=False, num_workers=num_workers, drop_last=False)
 
         # Model selection
         if args.model == 'Q1':
@@ -94,15 +91,21 @@ class Trainer(object):
             self.embed_size = self.dataset_train[0][0].shape[0]
             self.model = Q2(embed_size=self.embed_size, genres=genres)
         elif args.model == 'SpecAndEmbed':
-            self.model = SpecAndEmbed(num_mels=NUM_MELS, genres=genres)
-        elif args.model == 'SegmentedBaseline':
-            self.model = SegmentedBaseline(NUM_MELS, genres)
+            self.model = SpecAndEmbed(num_mels=NUM_MELS, genres=genres, model=self.args.model2)
         elif args.model == 'Base2DCNN':
             self.model = Base2DCNN(genres)
+        elif args.model == 'vgg13':
+            self.model = models.vgg13(pretrained=True)
+            fc_in_features = self.model.classifier[6].in_features
+            self.model.classifier[6] = nn.Linear(in_features=fc_in_features, out_features=len(genres))
         elif args.model == 'vgg16':
             self.model = models.vgg16(pretrained=True)
-            fc_in_features = self.model.fc.in_features
-            self.model.fc = nn.Linear(in_features=fc_in_features, out_features=len(genres))
+            fc_in_features = self.model.classifier[6].in_features
+            self.model.classifier[6] = nn.Linear(in_features=fc_in_features, out_features=len(genres))
+        elif args.model == 'vgg19':
+            self.model = models.vgg19(pretrained=True)
+            fc_in_features = self.model.classifier[6].in_features
+            self.model.classifier[6] = nn.Linear(in_features=fc_in_features, out_features=len(genres))
         elif args.model == 'resnet18':
             self.model = models.resnet18(pretrained=True)
             fc_in_features = self.model.fc.in_features
@@ -150,7 +153,11 @@ class Trainer(object):
             exit()
         source = source.max(1)[1].long().cpu()
         target = target.cpu()
-        voted_label = source[torch.argmax(source)]
+        #voted_label = source[torch.argmax(source)] 
+        counts = torch.zeros(len(genres)) # counts : 0 ~ 7
+        for i in range(self.args.test_bsz): # source : 0 ~ 6 
+            counts[source[i]] += 1
+        voted_label = torch.argmax(counts)
         label = target[0]
         correct = (voted_label == label).sum().item()
         #print(source, target)
@@ -158,12 +165,12 @@ class Trainer(object):
         return voted_label, label, correct
 
     def print_confusion_matrix(self, test_Y_c, test_Y_hat_c, labels=genres):
-        self.args.logging(f'confusion matrix for {genres}')
+        self.args.logging(f'| confusion matrix for {genres}')
         cm = confusion_matrix(test_Y_c, test_Y_hat_c, labels=genres)
         self.args.logging(f'{cm}')
 
     # Validation
-    def validate(self):
+    def validate(self,i_train):
         self.model.eval()
         with torch.no_grad():
             epoch_loss = 0
@@ -193,19 +200,19 @@ class Trainer(object):
             val_acc = epoch_acc / len(self.dataset_val)
             isBest = False
             # Based on validation accuracy or validation loss, best model is saved.
-            if (val_acc > self.best_val_acc):
+            if (val_acc > self.best_val_acc and self.args.debug is False):
                 #print('best validation loss!')
                 isBest = True
                 self.best_val_acc = val_acc
-                with open(os.path.join(self.args.work_dir, 'model.pt'), 'wb') as f:
+                with open(os.path.join(self.args.work_dir, f'model_{i_train}.pt'), 'wb') as f:
                     torch.save(self.model, f)
-                with open(os.path.join(self.args.work_dir, 'optimizer.pt'), 'wb') as f:
+                with open(os.path.join(self.args.work_dir, f'optimizer_{i_train}.pt'), 'wb') as f:
                     torch.save(self.optimizer.state_dict(), f)
             log_str = f'| val_loss {val_loss:5.2f} | val_acc {val_acc*100:5.2f}%'
             return log_str, isBest           
 
     # Train
-    def train(self):
+    def train(self, i_train):
         # Iterate over epochs.
         for epoch in range(self.args.n_epochs):
             # Set the status of the model as training.
@@ -244,21 +251,23 @@ class Trainer(object):
             train_acc = epoch_acc / len(self.dataset_train)
             log_str = f'| epoch {epoch:3d} | lr {lr:.3g} | train_loss {train_loss:5.2f} | train_acc {train_acc*100:5.2f}% '
             # Do validation and log update.          
-            log_str_v, isBest = self.validate()
+            log_str_v, isBest = self.validate(i_train)
             log_str += log_str_v
             if isBest:
                 self.best_train_acc = train_acc
             self.args.logging(log_str)
-        self.args.logging(f'best train accuracy : {self.best_train_acc*100:5.2f}%')
-        self.args.logging(f'best validation accuracy : {self.best_val_acc*100:5.2f}%')
+        self.args.logging(f'| best train accuracy : {self.best_train_acc*100:5.2f}%')
+        self.args.logging(f'| best validation accuracy : {self.best_val_acc*100:5.2f}%')
+        return self.best_train_acc, self.best_val_acc
     
     # Test : we only use this for final model
-    def test(self):
+    def test(self,i_train):
         # Load the best saved model.
-        self.args.logging('load the best saved model')
-        with open(os.path.join(self.args.work_dir, 'model.pt'), 'rb') as f:
-            self.model = torch.load(f)
-        self.model = self.model.to(self.device)
+        if self.args.debug is False:
+            self.args.logging('load the best saved model')
+            with open(os.path.join(self.args.work_dir, f'model_{i_train}.pt'), 'rb') as f:
+                self.model = torch.load(f)
+            self.model = self.model.to(self.device)
         
         # Set the status of the model as evaluation.
         self.model.eval()
@@ -328,25 +337,30 @@ class Trainer(object):
 
 def main():
     parser = argparse.ArgumentParser(description="HW2 Training")
+    parser.add_argument('--title', type=str, default="", help='experiment description')
     parser.add_argument('--debug', action='store_true', help='Debug mode')
     parser.add_argument('--model', type=str, default='Baseline',
-                        choices=['Baseline', 'Q1', 'Q2', 'SpecAndEmbed', 'SegmentedBaseline','Base2DCNN', 
-                        'vgg16', 'resnet18', 'resnet34', 'resnet50', 'resnet101'],
+                        choices=['Baseline', 'Q1', 'Q2', 'SpecAndEmbed','Base2DCNN', 
+                        'vgg13', 'vgg16', 'vgg19', 'resnet18', 'resnet34', 'resnet50', 'resnet101'],
                         help='backbone model (default is Baseline)')
+    parser.add_argument('--model2', type=str, default='Base2DCNN', choices=['Q1','Base2DCNN', 'resnet34'],
+                        help='backbone model for embed model')
     parser.add_argument('--optimizer', type=str, default='Adam', choices=['SGD', 'Adam'], help='optimizer')
     parser.add_argument('--work_dir', default='experiment', type=str, help='experiment directory')
-    parser.add_argument('--data_dir', default='gtzan/ori_spec/', type=str, help='data directory')
+    parser.add_argument('--data_dir', default='gtzan/spec/', type=str, help='data directory')
     parser.add_argument('--embed_dir', default='gtzan/embed/', type=str, 
                         help='data directory for embedding when using both mel and embeddings')
     parser.add_argument('--do_test', action='store_true', help='do test')
     parser.add_argument('--n_train', type=int, default=1, help='number of training with different seeds')
     parser.add_argument('--n_epochs', type=int, default=10, help='number of epochs')
     parser.add_argument('--use_segment', action='store_true', help='Use segmented data')
-    parser.add_argument('--use_augment', action='store_true', help='Use augmented data')
     parser.add_argument('--lr', type=float, default=0.0001, help='learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
     parser.add_argument('--weight_decay', type=float, default=0.0, help='weight decay')
-    
+    parser.add_argument('--train_bsz', type=int, default=128, help='train batch size')
+    parser.add_argument('--val_bsz', type=int, default=16, help='train batch size')
+    parser.add_argument('--test_bsz', type=int, default=7, help='train batch size')
+
     args = parser.parse_args()
     if not torch.cuda.is_available():
         raise SystemError('GPU device not found!')
@@ -354,8 +368,9 @@ def main():
     print(f'PyTorch version: {torch.__version__}')
     print(f'Librosa version: {librosa.__version__}')
     
-    args.work_dir = '{}/{}'.format(args.work_dir, args.model)
-    args.work_dir = os.path.join(args.work_dir, time.strftime('%Y%m%d-%H%M%S'))
+    args.work_dir = f'{args.work_dir}/{args.model}'
+    args.title = time.strftime('%Y%m%d-%H%M%S-') + args.title
+    args.work_dir = os.path.join(args.work_dir, args.title)
     args.logging = create_exp_dir(args.work_dir, debug=args.debug)
 
     # args information logging!
@@ -364,26 +379,49 @@ def main():
         args.logging('    - {} : {}'.format(k, v))
     args.logging('=' * 100)
 
+    train_accs = np.zeros(args.n_train)
+    train_acc_log = "| train accs : "
+
+    val_accs = np.zeros(args.n_train)
+    val_acc_log = "| val accs : "
+
     test_accs = np.zeros(args.n_train)
-    test_acc_log = "test accs : "
-
+    test_acc_log = "| test accs : "
+    
     for i in range(args.n_train):
-        args.logging(f'{i}th independent training')
-        manualSeed = random.randint(1, 10000) # use if you want new results
-        args.logging(f'Seed: {manualSeed}')
-        set_seed(manualSeed)
-        args.seed = manualSeed
-        trainer = Trainer(args)
-        trainer.train()
-        if args.do_test:
-            test_accs[i] = trainer.test()
-            test_acc_log += (f'{test_accs[i]*100:5.2f}%,')
+        try:
+            args.logging(f'{i}th independent training')
+            manualSeed = random.randint(1, 10000) # use if you want new results
+            args.logging(f'Seed: {manualSeed}')
+            set_seed(manualSeed)
+            args.seed = manualSeed
+            trainer = Trainer(args)
+            train_accs[i], val_accs[i] = trainer.train(i)
+            train_acc_log += f'{train_accs[i]*100:5.2f}%, '
+            val_acc_log += f'{val_accs[i]*100:5.2f}%, '
+        except KeyboardInterrupt:
+            args.logging('-' * 100)
+            args.logging('Exiting from training early')
 
+        if args.do_test:
+            test_accs[i] = trainer.test(i)
+            test_acc_log += f'{test_accs[i]*100:5.2f}%, '
+        args.logging('=' * 100)
+
+    args.logging(train_acc_log)
+    args.logging(val_acc_log)
+    train_avg_acc = np.mean(train_accs)
+    val_avg_acc = np.mean(val_accs)
+    train_avg_log = f'| avg train acc for {args.n_train} trials is {train_avg_acc*100:5.2f}%'
+    val_avg_log = f'| avg val acc for {args.n_train} trials is {val_avg_acc*100:5.2f}%'
+    args.logging(train_avg_log)
+    args.logging(val_avg_log)
     if args.do_test:
         args.logging(test_acc_log)
         test_avg_acc = np.mean(test_accs)
-        test_avg_log = f'avg test acc for {args.n_train} trials is {test_avg_acc*100:5.2f}%'
+        test_avg_log = f'| avg test acc for {args.n_train} trials is {test_avg_acc*100:5.2f}%'
         args.logging(test_avg_log)
+    args.logging('=' * 100)
 
 if __name__ == '__main__':
     main()
