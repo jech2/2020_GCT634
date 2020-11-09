@@ -27,6 +27,7 @@ feature_extraction.py loads audio files, extracts spectral features and codebook
 - For spectral features, MFCC, delta MFCC, double delta MFCC, Spectral Centroid are used, making each audio file as (3*MFCC_DIM+1,time_frame) matrix.
 
 - Codebook is data compression method of K-means clustering. Simply, we are making each audio files as a length of K-dimentional vector, codebook. 
+
 To extract features, run:
 ```
 $ python feature_extraction.py
@@ -39,7 +40,7 @@ For summarizing features, mean, max and min pooling in time domain are conducted
 When run train_test.py, sum_feature() of feature_summary.py is called. After that, all data are concatenated in dim=1, making input shape as (3*FEATURE_DIM+K, 1000), and used as an input of X.
 
 ### Train and Test
-Finally, to test and train the best model:
+Finally, to test and train the best model, run:
 ```
 $ python train_test.py
 ```
