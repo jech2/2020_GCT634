@@ -333,22 +333,26 @@ def copy_embeddings_for_segment(pair_base, in_base, out_base):
 
 if __name__ == "__main__":
     # Save augmented wav file
-    save_augmentation(in_base='gtzan/wav/', out_base='gtzan/aug_wav/')
+    # save_augmentation(in_base='gtzan/wav/', out_base='gtzan/aug_wav/')
+    
     # Extract GTT and MSD embeddings from original and augmented data
-    extract_embeddings(in_base='gtzan/wav/', out_base='gtzan/embed/', model='MTT_musicnn')
+    # extract_embeddings(in_base='gtzan/wav/', out_base='gtzan/embed/', model='MTT_musicnn')
     # extract_embeddings(in_base='gtzan/wav/', out_base='gtzan/msd_embed/', model='MSD_musicnn')
     # extract_embeddings(in_base='gtzan/aug_wav/', out_base='gtzan/aug_embed/', model='MTT_musicnn')
     # extract_embeddings(in_base='gtzan/aug_wav/', out_base='gtzan/aug_msd_embed/', model='MSD_musicnn')
+    
     # Extract mel spec
-    # extract_melspec(in_base='gtzan/wav/', out_base='gtzan/spec/', doSeg=False)   
+    extract_melspec(in_base='gtzan/wav/', out_base='gtzan/spec/', doSeg=False)   
     # extract_melspec(in_base='gtzan/wav/', out_base='gtzan/seg_spec/', doSeg=True)   
     # extract_melspec(in_base='gtzan/aug_wav/', out_base='gtzan/aug_spec/', doSeg=False)   
     # extract_melspec(in_base='gtzan/aug_wav/', out_base='gtzan/seg_aug_spec/', doSeg=True)   
-    # # extract hand made features
+    
+    # extract hand made features
     # extract_features(in_base='gtzan/wav/', out_base='gtzan/features/', doSeg=False)
     # extract_features(in_base='gtzan/wav/', out_base='gtzan/seg_features/', doSeg=True)
     # extract_features(in_base='gtzan/aug_wav/', out_base='gtzan/aug_features/', doSeg=False)
     # extract_features(in_base='gtzan/aug_wav/', out_base='gtzan/seg_aug_features/', doSeg=True)
+    
     # Copy embeddings for segment condition
     # copy_embeddings_for_segment(pair_base='gtzan/seg_spec/', in_base='gtzan/embed/', out_base='gtzan/seg_embed/')
     # copy_embeddings_for_segment(pair_base='gtzan/seg_spec/', in_base='gtzan/msd_embed/', out_base='gtzan/seg_msd_embed/')
