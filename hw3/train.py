@@ -11,7 +11,7 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from model import Transciber
+from model import Transcriber, Transcriber_CRNN, Transcriber_ONF, Transcriber_RNN
 from dataset import MAESTRO_small, allocate_batch
 from evaluate import evaluate
 from constants import HOP_SIZE
@@ -23,7 +23,7 @@ def cycle(iterable):
             yield item
 
 
-def train(logdir, batch_size, iterations, validation_interval, sequence_length, learning_rate, weight_decay, cnn_unit, fc_unit, debug=False):
+def train(model_type, logdir, batch_size, iterations, validation_interval, sequence_length, learning_rate, weight_decay, cnn_unit, fc_unit, debug=False, save_midi=False):
     if logdir is None:
         logdir = Path('runs') / ('exp_' + datetime.now().strftime('%y%m%d-%H%M%S'))
     Path(logdir).mkdir(parents=True, exist_ok=True)
@@ -46,7 +46,14 @@ def train(logdir, batch_size, iterations, validation_interval, sequence_length, 
 
     device = th.device('cuda') if th.cuda.is_available() else th.device('cpu')
 
-    model = Transciber(cnn_unit=cnn_unit, fc_unit=fc_unit)
+    if model_type == 'baseline':
+        model = Transcriber(cnn_unit=cnn_unit, fc_unit=fc_unit)
+    elif model_type == 'rnn':
+        model = Transcriber_RNN(cnn_unit=cnn_unit, fc_unit=fc_unit)
+    elif model_type == 'crnn':
+        model = Transcriber_CRNN(cnn_unit=cnn_unit, fc_unit=fc_unit)
+    elif model_type == 'ONF':
+        model = Transcriber_ONF(cnn_unit=cnn_unit, fc_unit=fc_unit)
     optimizer = th.optim.Adam(model.parameters(), learning_rate, weight_decay=weight_decay)
     scheduler = StepLR(optimizer, step_size=1000, gamma=0.98)
     criterion = nn.BCEWithLogitsLoss()
@@ -83,6 +90,7 @@ def train(logdir, batch_size, iterations, validation_interval, sequence_length, 
                     
                     for key, value in batch_results.items():
                         metrics[key].extend(value)
+            print('')
             for key, value in metrics.items():
                 if key[-2:] == 'f1' or 'loss' in key:
                     print(f'{key:27} : {np.mean(value):.4f}')
@@ -95,6 +103,7 @@ def train(logdir, batch_size, iterations, validation_interval, sequence_length, 
             'fc_unit' : fc_unit
             },
             Path(logdir) / f'model-{step}.pt')
+    del dataset, valid_dataset
     
     test_dataset = MAESTRO_small(groups=['test'], hop_size=HOP_SIZE, random_sample=False)
     model.eval()
@@ -102,9 +111,10 @@ def train(logdir, batch_size, iterations, validation_interval, sequence_length, 
         loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
         metrics = defaultdict(list)
         for batch in loader:
-            batch_results = evaluate(model, batch, device)
+            batch_results = evaluate(model, batch, device, save=save_midi, save_path=logdir)
             for key, value in batch_results.items():
                 metrics[key].extend(value)
+    print('')
     for key, value in metrics.items():
         if key[-2:] == 'f1' or 'loss' in key:
             print(f'{key} : {np.mean(value)}')
@@ -119,6 +129,7 @@ def train(logdir, batch_size, iterations, validation_interval, sequence_length, 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('--model_type', default='baseline', type=str)
     parser.add_argument('--logdir', default=None, type=str)
     parser.add_argument('-v', '--sequence_length', default=102400, type=int)
     parser.add_argument('-lr', '--learning_rate', default=6e-4, type=float)
@@ -128,6 +139,7 @@ if __name__ == '__main__':
     parser.add_argument('-wd', '--weight_decay', default=0)
     parser.add_argument('-cnn', '--cnn_unit', default=48, type=int)
     parser.add_argument('-fc', '--fc_unit', default=256, type=int)
+    parser.add_argument('--save_midi', action='store_true')
     parser.add_argument('--debug', action='store_true')
     args = parser.parse_args()
 
