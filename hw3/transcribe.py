@@ -13,9 +13,9 @@ from mir_eval.util import midi_to_hz, hz_to_midi
 
 from model import Transciber
 from evaluate import extract_notes, save_midi
-from constants import HOP_SIZE, N_FFT, SAMPLE_RATE, MIN_MIDI
+from constants import HOP_SIZE, N_FFT, SAMPLE_RATE, MIN_MIDI # this is interesting
 
-
+# Load audio file
 def load_audio(audiofile):
     try:
         audio, sr = soundfile.read(audiofile)
@@ -33,18 +33,20 @@ def load_audio(audiofile):
             audio, sr = soundfile.read(tempwav)
     return audio
 
-
+# Transcription = based on input audio, model generates midi file and also the wav version of it
 def transcribe(audio, model, args, save_name, max_len):
     print(f'save_path: {save_name}')
     audio = audio[:max_len*SAMPLE_RATE]
     t_audio = th.tensor(audio).to(th.float).cuda()
-    pad_len = math.ceil(len(t_audio) / HOP_SIZE) * HOP_SIZE - len(t_audio)
+    pad_len = math.ceil(len(t_audio) / HOP_SIZE) * HOP_SIZE - len(t_audio) # To make sure that the total length of audio is multiple of hop size
     t_audio = th.unsqueeze(F.pad(t_audio, (0, pad_len)), 0)
 
     frame_logit, onset_logit = model(t_audio)
+    # Why use sigmoid rather than softmax? : enable multiple notes at a time(poly phonic) 
     onset = th.sigmoid(onset_logit[0])
     frame = th.sigmoid(frame_logit[0])
 
+    # Get pitch and interval(the length of notes, not the harmonic interval) values
     p_est, i_est = extract_notes(onset, frame)
 
     scaling = HOP_SIZE / SAMPLE_RATE
@@ -52,13 +54,15 @@ def transcribe(audio, model, args, save_name, max_len):
     i_est = (i_est * scaling).reshape(-1, 2)
     p_est = np.array([midi_to_hz(MIN_MIDI + pitch) for pitch in p_est])
 
+    # Save onset and frame information into numpy zip
     numpy_filename = Path(save_name).parent / (Path(save_name).stem + '.npz')
     np.savez(save_name, onset=onset.cpu().numpy(), frame=frame.cpu().numpy())
 
-
+    # Save MIDI
     midi_filename = Path(save_name).parent / (Path(save_name).stem + '.midi')
     save_midi(midi_filename, p_est, i_est, [64] * len(p_est))
 
+    # Save Wav using fluidsynth
     wav_filename = Path(save_name).parent / (Path(save_name).stem + '.wav')
     midi_file = pretty_midi.PrettyMIDI(str(midi_filename))
     synth_audio = midi_file.fluidsynth(fs=16000)
@@ -69,19 +73,20 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('model_file', type=str)
     parser.add_argument('audio_file', type=str)
-    parser.add_argument('--max_len', default=30, type=int)
+    parser.add_argument('--max_len', default=30, type=int) # max len in seconds
     parser.add_argument('--rep_type', default='base')
     parser.add_argument('--save_path', default=None)
     args = parser.parse_args()
     with th.no_grad():
+        # Load pretrained models
         model_state_path = args.model_file
         ckp = th.load(model_state_path, map_location='cpu')
         model = Transciber(ckp['cnn_unit'], ckp['fc_unit'])
-
+        
         model.load_state_dict(ckp['model_state_dict'])
         model.eval()
         model = model.cuda()
-
+        # Load audio file
         audio = load_audio(args.audio_file)
 
         if args.save_path is None:

@@ -13,19 +13,19 @@ import pretty_midi
 
 from constants import MIN_MIDI, MAX_MIDI, SAMPLE_RATE, HOP_SIZE
 
-
+# Allocate each items of batch to device
 def allocate_batch(batch, device):
     for key in batch.keys():
         if key != 'path':
             batch[key] = batch[key].to(device)
     return batch
 
-
+# Base class of piano sample dataset
 class PianoSampleDataset(Dataset):
     def __init__(self, path, groups=None, sample_length=16000*5, hop_size=HOP_SIZE, seed=1257, random_sample=True):
         self.path = path
         self.groups = groups if groups is not None else self.available_groups()
-        assert all(group in self.available_groups() for group in self.groups)
+        assert all(group in self.available_groups() for group in self.groups) # group is train/val/test/debug
         self.sample_length = sample_length // hop_size * hop_size if sample_length is not None else None
         self.random = np.random.RandomState(seed)
         self.random_sample = random_sample
@@ -99,26 +99,29 @@ class PianoSampleDataset(Dataset):
         audio, sr = soundfile.read(audio_path, dtype='int16')
         assert sr == SAMPLE_RATE
         fs = sr / self.hop_size
-
+        
+        # Why short tensor? audio file is ...
         audio = th.ShortTensor(audio)
         audio_length = len(audio)
 
+        # Make key values starting from 0
         n_keys = MAX_MIDI - MIN_MIDI + 1
         mel_length = audio_length // self.hop_size + 1
 
         midi = pretty_midi.PrettyMIDI(midi_path)
         midi_length_sec = midi.get_end_time()
-        frame_length = np.min((int(midi_length_sec * fs) , mel_length))
+        frame_length = np.min((int(midi_length_sec * fs) , mel_length)) # maybe there is really small distance
 
         audio = audio[:frame_length*self.hop_size]
-        frame = midi.get_piano_roll(fs=fs)
+        frame = midi.get_piano_roll(fs=fs) # sustain
         onset = np.zeros_like(frame)
+        # For all instruments, get the start index
         for inst in midi.instruments:
             for note in inst.notes:
                 onset[note.pitch, int(note.start * fs)] = 1
-
-        frame = th.from_numpy(frame[21:108 + 1].T)  # to shape (times x 88 pitch)
-        onset = th.from_numpy(onset[21:108 + 1].T)
+        
+        frame = th.from_numpy(frame[MIN_MIDI:MAX_MIDI + 1].T)  # to shape (times x 88 pitch)
+        onset = th.from_numpy(onset[MIN_MIDI:MAX_MIDI + 1].T)
         data = dict(path=audio_path, audio=audio, frame=frame, onset=onset)
         return data
 

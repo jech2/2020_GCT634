@@ -24,16 +24,19 @@ def cycle(iterable):
 
 
 def train(model_type, logdir, batch_size, iterations, validation_interval, sequence_length, learning_rate, weight_decay, cnn_unit, fc_unit, debug=False, save_midi=False):
+    # Set the log directory
     if logdir is None:
         logdir = Path('runs') / ('exp_' + datetime.now().strftime('%y%m%d-%H%M%S'))
     Path(logdir).mkdir(parents=True, exist_ok=True)
 
+    # Make sequence length as the multiples of HOP_SIZE -> why?
     if sequence_length % HOP_SIZE != 0:
         adj_length = sequence_length // HOP_SIZE * HOP_SIZE
         print(f'sequence_length: {sequence_length} is not divide by {HOP_SIZE}.\n \
                 adjusted into : {adj_length}')
         sequence_length = adj_length
-
+    
+    # Dataset setting
     if debug:
         dataset = MAESTRO_small(groups=['debug'], sequence_length=sequence_length, hop_size=HOP_SIZE, random_sample=True)
         valid_dataset = dataset
@@ -44,8 +47,10 @@ def train(model_type, logdir, batch_size, iterations, validation_interval, seque
         valid_dataset = MAESTRO_small(groups=['validation'], sequence_length=sequence_length, hop_size=HOP_SIZE, random_sample=False)
     loader = DataLoader(dataset, batch_size, shuffle=True)
 
+    # Device setting
     device = th.device('cuda') if th.cuda.is_available() else th.device('cpu')
 
+    # Model setting
     if model_type == 'baseline':
         model = Transcriber(cnn_unit=cnn_unit, fc_unit=fc_unit)
     elif model_type == 'rnn':
@@ -60,12 +65,14 @@ def train(model_type, logdir, batch_size, iterations, validation_interval, seque
 
     model = model.to(device)
 
+    # Training : why not using batch enumerate and using custom cycle function
     loop = tqdm(range(1, iterations+1))
     
     for step, batch in zip(loop, cycle(loader)):
         optimizer.zero_grad()
-        batch = allocate_batch(batch, device)
+        batch = allocate_batch(batch, device) # oh this is useful
 
+        # Feed the input to model(audio -> frame and onset logit : just a classification)
         frame_logit, onset_logit = model(batch['audio'])
         frame_loss = criterion(frame_logit, batch['frame'])
         onset_loss = criterion(onset_logit, batch['onset'])
@@ -73,6 +80,7 @@ def train(model_type, logdir, batch_size, iterations, validation_interval, seque
 
         loss.mean().backward()
 
+        # What clip_grad_norm does?
         for parameter in model.parameters():
             clip_grad_norm_([parameter], 3.0)
 
@@ -96,6 +104,7 @@ def train(model_type, logdir, batch_size, iterations, validation_interval, seque
                     print(f'{key:27} : {np.mean(value):.4f}')
             model.train()
 
+    # Save the results and delete dataset
     th.save({'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'step' : step,
@@ -103,7 +112,7 @@ def train(model_type, logdir, batch_size, iterations, validation_interval, seque
             'fc_unit' : fc_unit
             },
             Path(logdir) / f'model-{step}.pt')
-    del dataset, valid_dataset
+    del dataset, valid_dataset 
     
     test_dataset = MAESTRO_small(groups=['test'], hop_size=HOP_SIZE, random_sample=False)
     model.eval()
@@ -143,4 +152,4 @@ if __name__ == '__main__':
     parser.add_argument('--debug', action='store_true')
     args = parser.parse_args()
 
-    train(**vars(parser.parse_args()))
+    train(**vars(parser.parse_args())) # What is this...!!!!

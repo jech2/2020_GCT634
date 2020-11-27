@@ -21,6 +21,7 @@ def evaluate(model, batch, device, save=False, save_path=None):
 
     frame_logit, onset_logit = model(batch['audio'])
 
+    # Since they are logits, BCEWithLogitsLoss is used, not BCE with loss; BCEWithLogitsLoss is more stable!
     criterion = nn.BCEWithLogitsLoss()
     frame_loss = criterion(frame_logit, batch['frame'])
     onset_loss = criterion(frame_logit, batch['onset'])
