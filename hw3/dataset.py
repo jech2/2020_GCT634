@@ -141,7 +141,7 @@ class MAESTRO_small(PianoSampleDataset):
             files = sorted([(os.path.join(self.path, row['audio_filename'].replace('.wav', '.flac')),
                              os.path.join(self.path, row['midi_filename'])) for row in metadata if
                             row['split'] == 'train'])
-            files = files[:10]
+            files = files[:2]
         else:
             files = sorted([(os.path.join(self.path, row['audio_filename'].replace('.wav', '.flac')),
                             os.path.join(self.path, row['midi_filename'])) for row in metadata if row['split'] == group])

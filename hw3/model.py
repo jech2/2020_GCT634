@@ -51,14 +51,15 @@ class ConvStack(nn.Module):
             nn.Dropout(0.25),
         )
         self.fc = nn.Sequential(
-            nn.Linear((cnn_unit * 2) * (n_mels // 4), fc_unit),
+            nn.Linear((cnn_unit * 2) * (n_mels // 4), fc_unit), # batch size * frames * fc_unit
             nn.Dropout(0.5)
         )
 
     def forward(self, mel):
         x = mel.unsqueeze(1)
         x = self.cnn(x)
-        x = x.transpose(1, 2).flatten(-2)
+        x = x.transpose(1, 2).flatten(-2) #change the dimension (batch * channel * frame * features --> batch * frame * channel * features)
+        # flatten -2 is summing the dimension of 2nd thing from back
         x = self.fc(x)
         return x
 
@@ -78,34 +79,112 @@ class Transcriber(nn.Module):
     def forward(self, audio):
         mel = self.melspectrogram(audio)
 
-        x = self.frame_conv_stack(mel)  # (B x T x C)
+        x = self.frame_conv_stack(mel)  # (B x T x C) : Batch size x Time x Channel size
         frame_out = self.frame_fc(x)
 
         x = self.onset_conv_stack(mel)  # (B x T x C)
         onset_out = self.onset_fc(x)
         return frame_out, onset_out
 
+# Question 1 : Implement LSTM based Model
 class Transcriber_RNN(nn.Module):
     def __init__(self, cnn_unit, fc_unit):
         super().__init__()
         self.melspectrogram = LogMelSpectrogram()
+        
+        self.frame_bilstm = nn.LSTM(input_size=N_MELS, hidden_size=88, num_layers=2, bidirectional=True, batch_first=True)
+        self.frame_fc = nn.Linear(2*88, 88)
+        
+        self.onset_bilstm = nn.LSTM(input_size=N_MELS, hidden_size=88, num_layers=2, bidirectional=True, batch_first=True)
+        self.onset_fc = nn.Linear(2*88, 88)
 
     def forward(self, audio):
+        mel = self.melspectrogram(audio)
+
+        x, _ = self.frame_bilstm(mel)
+        frame_out = self.frame_fc(x)
+
+        x, _ = self.onset_bilstm(mel)
+        onset_out = self.onset_fc(x)
         return frame_out, onset_out
 
-
+# Question 2 : Implement CNN-RNN(CRNN) Model
 class Transcriber_CRNN(nn.Module):
     def __init__(self, cnn_unit, fc_unit):
         super().__init__()
         self.melspectrogram = LogMelSpectrogram()
 
-    def forward(self, audio):
-        return frame_out, onset_out
+        self.frame_conv_stack = ConvStack(N_MELS, cnn_unit, fc_unit)
+        self.frame_bilstm = nn.LSTM(input_size=fc_unit, hidden_size=88, num_layers=2, bidirectional=True, batch_first=True)
+        self.frame_fc = nn.Linear(2*88, 88)
         
+        self.onset_conv_stack = ConvStack(N_MELS, cnn_unit, fc_unit)
+        self.onset_bilstm = nn.LSTM(input_size=fc_unit, hidden_size=88, num_layers=2, bidirectional=True, batch_first=True)
+        self.onset_fc = nn.Linear(2*88, 88)
+
+    def forward(self, audio):
+        mel = self.melspectrogram(audio)
+
+        x = self.frame_conv_stack(mel) 
+        x, _ = self.frame_bilstm(x) 
+        frame_out = self.frame_fc(x)
+
+        x = self.onset_conv_stack(mel)
+        x, _ = self.onset_bilstm(x)
+        onset_out = self.onset_fc(x)
+
+        return frame_out, onset_out
+
+# Question 3 : Implement Onsets-and-Frames Model, which have interconnection between         
 class Transcriber_ONF(nn.Module):
     def __init__(self, cnn_unit, fc_unit):
         super().__init__()
         self.melspectrogram = LogMelSpectrogram()
+        self.frame_conv_stack = ConvStack(N_MELS, cnn_unit, fc_unit)
+        self.frame_middle_fc = nn.Linear(fc_unit, 88)
+        self.frame_bilstm = nn.LSTM(input_size=2*88, hidden_size=88, num_layers=2, bidirectional=True, batch_first=True)
+        self.frame_fc = nn.Linear(2*88, 88)
+        
+        self.onset_conv_stack = ConvStack(N_MELS, cnn_unit, fc_unit)
+        self.onset_bilstm = nn.LSTM(input_size=fc_unit, hidden_size=88, num_layers=2, bidirectional=True, batch_first=True)
+        self.onset_fc = nn.Linear(2*88, 88)
 
     def forward(self, audio):
+        mel = self.melspectrogram(audio)
+        # onset
+        onset_out = self.onset_conv_stack(mel) # batch * frame * fc_unit
+        onset_out, _ = self.onset_bilstm(onset_out) # batch * frame * (fc_unit x 2)
+        onset_out = self.onset_fc(onset_out) # batch * frame * piano_roll
+
+        # frame
+        frame_middle = self.frame_conv_stack(mel)  
+        frame_middle = self.frame_middle_fc(frame_middle)
+        # concatenate
+        onset_add = th.sigmoid(onset_out.clone().detach())
+        frame_middle = th.cat([frame_middle, onset_add], dim=2)
+        frame_middle, _ = self.frame_bilstm(frame_middle)
+        frame_out = self.frame_fc(frame_middle)
+
+        return frame_out, onset_out
+
+# Question 4 : Implement uni directional LSTM based Model
+class Transcriber_udRNN(nn.Module):
+    def __init__(self, cnn_unit, fc_unit):
+        super().__init__()
+        self.melspectrogram = LogMelSpectrogram()
+        
+        self.frame_unilstm = nn.LSTM(input_size=N_MELS, hidden_size=2*88, num_layers=2, bidirectional=False, batch_first=True)
+        self.frame_fc = nn.Linear(2*88, 88)
+        
+        self.onset_unilstm = nn.LSTM(input_size=N_MELS, hidden_size=2*88, num_layers=2, bidirectional=False, batch_first=True)
+        self.onset_fc = nn.Linear(2*88, 88)
+
+    def forward(self, audio):
+        mel = self.melspectrogram(audio)
+
+        x, _ = self.frame_unilstm(mel)
+        frame_out = self.frame_fc(x)
+
+        x, _ = self.onset_unilstm(mel)
+        onset_out = self.onset_fc(x)
         return frame_out, onset_out
